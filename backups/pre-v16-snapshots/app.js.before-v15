@@ -1,0 +1,3935 @@
+const ORIGIN = 'https://cinesrc.st';
+const TMDB_KEY = '29582cf7448083efc74052a8ee4864fa';
+const OMDB_KEY = 'f0691d6c';
+
+const iframe = document.getElementById('player');
+const status = document.getElementById('status');
+const homeView = document.getElementById('home-view');
+const playerView = document.getElementById('player-view');
+const heroEl = document.getElementById('hero');
+const rowsEl = document.getElementById('rows');
+const playerTitleEl = document.getElementById('player-title');
+const searchInput = document.getElementById('search');
+const searchBtn = document.getElementById('searchBtn');
+const hoverCard = document.getElementById('hover-card');
+
+function showHome() {
+  homeView.classList.remove('hidden');
+  playerView.classList.add('hidden');
+  iframe.src = 'about:blank';
+  document.title = "Zara's Movies";
+}
+function showPlayer() {
+  homeView.classList.add('hidden');
+  playerView.classList.remove('hidden');
+}
+function buildUrl(type, id, season, episode) {
+  return type === 'movie'
+    ? `${ORIGIN}/embed/movie/${id}?back=close&color=%23ffb6d9`
+    : `${ORIGIN}/embed/tv/${id}?s=${season}&e=${episode}&back=close&color=%23ffb6d9`;
+}
+function loadPlayer(type, id, season, episode, title) {
+  iframe.src = buildUrl(type, id, season, episode);
+  playerTitleEl.textContent = title || '';
+  status.textContent = 'Loading…';
+  document.title = title ? `${title} — Zara's Movies` : "Zara's Movies";
+  showPlayer();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function sendCommand(command, args = []) {
+  iframe.contentWindow.postMessage({ type: 'cinesrc:command', command, args }, ORIGIN);
+}
+document.getElementById('backHome').onclick = showHome;
+document.getElementById('brandBtn').onclick = showHome;
+document.getElementById('load').onclick = () => {
+  const type = document.getElementById('type').value;
+  const id = document.getElementById('tmdbId').value.trim();
+  const s = document.getElementById('season').value;
+  const e = document.getElementById('episode').value;
+  if (id) loadPlayer(type, id, s, e, '');
+};
+document.getElementById('play').onclick = () => sendCommand('play');
+document.getElementById('pause').onclick = () => sendCommand('pause');
+
+async function tmdb(path) {
+  const sep = path.includes('?') ? '&' : '?';
+  const res = await fetch(`https://api.themoviedb.org/3${path}${sep}api_key=${TMDB_KEY}`);
+  if (!res.ok) throw new Error(`TMDB ${res.status}`);
+  return res.json();
+}
+function posterUrl(path, size = 'w342') { return path ? `https://image.tmdb.org/t/p/${size}${path}` : null; }
+function backdropUrl(path) { return path ? `https://image.tmdb.org/t/p/original${path}` : null; }
+
+function makeCard(item, typeOverride) {
+  const type = typeOverride
+    || (item.media_type === 'tv' ? 'tv'
+      : item.media_type === 'movie' ? 'movie'
+      : (item.first_air_date ? 'tv' : 'movie'));
+  const title = item.title || item.name || 'Untitled';
+  const date = (item.release_date || item.first_air_date || '').slice(0, 4);
+  const poster = posterUrl(item.poster_path);
+
+  const card = document.createElement('div');
+  card.className = 'card';
+
+  if (poster) {
+    const img = document.createElement('img');
+    img.src = poster; img.alt = title; img.loading = 'lazy';
+    card.appendChild(img);
+  } else {
+    const fb = document.createElement('div');
+    fb.className = 'card-fallback'; fb.textContent = '🎬';
+    card.appendChild(fb);
+  }
+
+  const info = document.createElement('div');
+  info.className = 'card-info';
+  const t = document.createElement('div');
+  t.className = 'card-title'; t.textContent = title;
+  const m = document.createElement('div');
+  m.className = 'card-meta';
+  m.textContent = [date, type === 'tv' ? 'TV' : 'Movie'].filter(Boolean).join(' · ');
+  info.appendChild(t); info.appendChild(m);
+  card.appendChild(info);
+
+  card.onclick = () => loadPlayer(type, item.id, 1, 1, title);
+  card.addEventListener('mouseenter', () => handleCardHover(card, type, item));
+  card.addEventListener('mouseleave', scheduleHide);
+  return card;
+}
+
+function makeRow(titleText, items) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const heading = document.createElement('h2');
+  heading.className = 'row-title'; heading.textContent = titleText;
+  row.appendChild(heading);
+  const scroll = document.createElement('div');
+  scroll.className = 'row-scroll';
+  items.forEach(item => scroll.appendChild(makeCard(item)));
+  row.appendChild(scroll);
+  return row;
+}
+
+function makeSkeletonRow(titleText) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const heading = document.createElement('h2');
+  heading.className = 'row-title'; heading.textContent = titleText;
+  row.appendChild(heading);
+  const scroll = document.createElement('div');
+  scroll.className = 'row-scroll';
+  for (let i = 0; i < 8; i++) {
+    const s = document.createElement('div');
+    s.className = 'skeleton';
+    scroll.appendChild(s);
+  }
+  row.appendChild(scroll);
+  return row;
+}
+
+function renderHero(item) {
+  const title = item.title || item.name || 'Featured';
+  const date = (item.release_date || item.first_air_date || '').slice(0, 4);
+  const type = item.media_type === 'tv' || item.first_air_date ? 'tv' : 'movie';
+  const backdrop = backdropUrl(item.backdrop_path);
+  heroEl.style.setProperty('--hero-img', backdrop ? `url("${backdrop}")` : 'none');
+  heroEl.innerHTML = `
+    <div class="hero-content">
+      <div class="hero-badge">✦ Featured ${type === 'tv' ? 'Series' : 'Film'}</div>
+      <h1 class="hero-title">${title}</h1>
+      <div class="hero-meta">
+        ${date ? `<span>${date}</span><span class="dot"></span>` : ''}
+        <span>★ ${(item.vote_average || 0).toFixed(1)}</span>
+        <span class="dot"></span>
+        <span>${type === 'tv' ? 'TV Show' : 'Movie'}</span>
+      </div>
+      <p class="hero-overview">${item.overview || 'No description available.'}</p>
+      <div class="hero-actions">
+        <button class="btn-primary" id="heroPlay">▶ Play Now</button>
+        <button class="btn-ghost" id="heroInfo">More Info</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('heroPlay').onclick = () => loadPlayer(type, item.id, 1, 1, title);
+  document.getElementById('heroInfo').onclick = () => loadPlayer(type, item.id, 1, 1, title);
+}
+
+async function loadHome() {
+  heroEl.innerHTML = '';
+  rowsEl.innerHTML = '';
+  const sections = [
+    { title: '🔥 Trending This Week', path: '/trending/all/week' },
+    { title: '🎬 Popular Movies',     path: '/movie/popular' },
+    { title: '📺 Popular TV Shows',   path: '/tv/popular' },
+    { title: '⭐ Top Rated Movies',   path: '/movie/top_rated' },
+  ];
+  sections.forEach(s => rowsEl.appendChild(makeSkeletonRow(s.title)));
+  try {
+    const trending = await tmdb(sections[0].path);
+    const featured = (trending.results || []).filter(r => r.backdrop_path && r.overview)[0]
+      || trending.results?.[0];
+    if (featured) renderHero(featured);
+    const rest = await Promise.all(
+      sections.slice(1).map(s => tmdb(s.path).catch(() => ({ results: [] })))
+    );
+    rowsEl.innerHTML = '';
+    rowsEl.appendChild(makeRow(sections[0].title, (trending.results || []).slice(0, 20)));
+    rest.forEach((data, i) => {
+      rowsEl.appendChild(makeRow(sections[i + 1].title, (data.results || []).slice(0, 20)));
+    });
+  } catch (err) {
+    rowsEl.innerHTML = `<div class="row"><div class="row-title">Error</div><div style="color:var(--muted)">${err.message}</div></div>`;
+    console.error(err);
+  }
+}
+
+async function runSearch() {
+  const q = searchInput.value.trim();
+  const type = document.getElementById('type').value;
+  if (!q) return;
+  heroEl.innerHTML = '';
+  rowsEl.innerHTML = '';
+  rowsEl.appendChild(makeSkeletonRow(`Searching "${q}"...`));
+  try {
+    const data = await tmdb(`/search/${type}?query=${encodeURIComponent(q)}`);
+    rowsEl.innerHTML = '';
+    if (!data.results || data.results.length === 0) {
+      rowsEl.innerHTML = `<div class="row"><h2 class="row-title">No results</h2><div style="color:var(--muted)">Nothing matched "${q}".</div></div>`;
+      return;
+    }
+    rowsEl.appendChild(makeRow(`Results for "${q}"`, data.results));
+  } catch (err) {
+    rowsEl.innerHTML = `<div class="row"><h2 class="row-title">Error</h2><div style="color:var(--muted)">${err.message}</div></div>`;
+    console.error(err);
+  }
+}
+searchBtn.onclick = runSearch;
+searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+
+window.addEventListener('message', (event) => {
+  if (event.origin !== ORIGIN) return;
+  const { type, ...data } = event.data;
+  if (type === 'cinesrc:ready') status.textContent = 'Ready';
+  if (type === 'cinesrc:play') status.textContent = 'Playing';
+  if (type === 'cinesrc:pause') status.textContent = 'Paused';
+  if (type === 'cinesrc:timeupdate')
+    status.textContent = `${data.currentTime.toFixed(0)}s / ${data.duration.toFixed(0)}s`;
+  if (type === 'cinesrc:error') status.textContent = 'Error: ' + JSON.stringify(data.error);
+  if (type === 'cinesrc:close') showHome();
+});
+
+/* ---------- HOVER CARD ---------- */
+const detailCache = new Map();
+const imdbCache = new Map();
+let hoverTimer = null;
+let hideTimer = null;
+let activeCard = null;
+
+function cancelHide() {
+  clearTimeout(hideTimer);
+  hideTimer = null;
+}
+function scheduleHide() {
+  cancelHide();
+  hideTimer = setTimeout(() => {
+    if (hoverCard.matches(':hover')) return;
+    activeCard = null;
+    hoverCard.classList.add('hidden');
+  }, 200);
+}
+function hideHoverCardNow() {
+  cancelHide();
+  activeCard = null;
+  hoverCard.classList.add('hidden');
+}
+
+async function tmdbWithRetry(path, attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await tmdb(path);
+    } catch (err) {
+      const isRate = /429/.test(err.message);
+      if (!isRate || i === attempts - 1) throw err;
+      await new Promise(r => setTimeout(r, 500 * Math.pow(2, i)));
+    }
+  }
+}
+
+async function fetchDetails(type, id) {
+  const key = `${type}:${id}`;
+  if (detailCache.has(key)) return detailCache.get(key);
+  const [details, external] = await Promise.all([
+    tmdbWithRetry(`/${type}/${id}`),
+    tmdbWithRetry(`/${type}/${id}/external_ids`).catch(() => ({}))
+  ]);
+  const merged = { ...details, imdb_id: external.imdb_id || null };
+  detailCache.set(key, merged);
+  return merged;
+}
+
+async function fetchImdbRating(imdbId) {
+  if (!imdbId) return null;
+  if (imdbCache.has(imdbId)) return imdbCache.get(imdbId);
+  if (!OMDB_KEY || OMDB_KEY.startsWith('YOUR_')) {
+    imdbCache.set(imdbId, null);
+    return null;
+  }
+  try {
+    const res = await fetch(`https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_KEY}`);
+    const data = await res.json();
+    const result = data && data.Response === 'True'
+      ? { rating: data.imdbRating, votes: data.imdbVotes, rated: data.Rated }
+      : null;
+    imdbCache.set(imdbId, result);
+    return result;
+  } catch {
+    imdbCache.set(imdbId, null);
+    return null;
+  }
+}
+
+function renderHoverCard(data, imdb, type, position, loading = false) {
+  const title   = data.title || data.name || 'Untitled';
+  const year    = (data.release_date || data.first_air_date || '').slice(0, 4);
+  const tmdbRating = (data.vote_average || 0).toFixed(1);
+  const genres  = (data.genres || []).map(g => g.name).slice(0, 3);
+  const runtime = data.runtime
+    ? `${data.runtime} min`
+    : data.number_of_seasons
+      ? `${data.number_of_seasons} season${data.number_of_seasons > 1 ? 's' : ''}`
+      : '';
+  const overview = data.overview || 'No description available.';
+  const backdrop = data.backdrop_path
+    ? `https://image.tmdb.org/t/p/w780${data.backdrop_path}`
+    : data.poster_path
+      ? `https://image.tmdb.org/t/p/w342${data.poster_path}`
+      : '';
+  const imdbRating = imdb?.rating && imdb.rating !== 'N/A' ? imdb.rating : null;
+  const imdbVotes  = imdb?.votes  && imdb.votes  !== 'N/A' ? imdb.votes  : null;
+  const rated      = imdb?.rated  && imdb.rated  !== 'N/A' ? imdb.rated  : null;
+
+  hoverCard.innerHTML = `
+    ${backdrop ? `<div class="hc-backdrop" style="background-image:url('${backdrop}')"></div>` : ''}
+    <div class="hc-body">
+      <h3 class="hc-title">${title}</h3>
+      <div class="hc-meta">
+        ${year ? `<span>${year}</span>` : ''}
+        ${runtime ? `<span class="hc-dot"></span><span>${runtime}</span>` : ''}
+        ${rated ? `<span class="hc-dot"></span><span>${rated}</span>` : ''}
+        ${loading ? `<span class="hc-dot"></span><span style="color:var(--accent)">loading…</span>` : ''}
+      </div>
+      <div class="hc-ratings">
+        <div class="hc-rating">
+          <span class="hc-rating-label">IMDb</span>
+          <span class="hc-rating-value">${imdbRating ?? '—'}</span>
+          ${imdbVotes ? `<span class="hc-rating-votes">${imdbVotes}</span>` : ''}
+        </div>
+        <div class="hc-rating">
+          <span class="hc-rating-label">TMDB</span>
+          <span class="hc-rating-value">${tmdbRating}</span>
+        </div>
+      </div>
+      ${genres.length ? `<div class="hc-genres">${genres.map(g => `<span class="hc-genre">${g}</span>`).join('')}</div>` : ''}
+      <p class="hc-overview">${overview}</p>
+      <div class="hc-actions">
+        <button class="hc-play" id="hcPlayBtn">▶ Play</button>
+      </div>
+    </div>
+  `;
+  hoverCard.style.left = position.left + 'px';
+  hoverCard.style.top  = position.top  + 'px';
+  hoverCard.classList.remove('hidden');
+
+  const playBtn = document.getElementById('hcPlayBtn');
+  if (playBtn) {
+    playBtn.onclick = (e) => {
+      e.stopPropagation();
+      hideHoverCardNow();
+      loadPlayer(type, data.id, type === 'tv' ? 1 : undefined, type === 'tv' ? 1 : undefined, title);
+    };
+  }
+}
+
+function computePosition(cardEl) {
+  const rect = cardEl.getBoundingClientRect();
+  const cardWidth = 320;
+  const cardHeight = 380;
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+
+  let left = rect.left + rect.width / 2 - cardWidth / 2;
+  left = Math.max(12, Math.min(left, viewportW - cardWidth - 12));
+
+  const spaceAbove = rect.top;
+  const spaceBelow = viewportH - rect.bottom;
+
+  let top;
+  if (spaceAbove >= cardHeight + 20) {
+    top = rect.top - cardHeight - 10;
+  } else if (spaceBelow >= cardHeight + 20) {
+    top = rect.bottom + 10;
+  } else {
+    top = Math.max(12, Math.min(rect.top - 40, viewportH - cardHeight - 12));
+  }
+  return { left, top };
+}
+
+async function handleCardHover(cardEl, type, item) {
+  cancelHide();
+  if (activeCard === cardEl && !hoverCard.classList.contains('hidden')) return;
+  activeCard = cardEl;
+  clearTimeout(hoverTimer);
+
+  hoverTimer = setTimeout(async () => {
+    const pos = computePosition(cardEl);
+    renderHoverCard(item, null, type, pos, true);
+    try {
+      const details = await fetchDetails(type, item.id);
+      if (activeCard !== cardEl && hoverCard.classList.contains('hidden')) return;
+      const imdb = await fetchImdbRating(details.imdb_id);
+      if (activeCard !== cardEl && hoverCard.classList.contains('hidden')) return;
+      renderHoverCard(details, imdb, type, computePosition(cardEl), false);
+    } catch (err) {
+      console.error('Hover fetch failed:', err);
+      const meta = hoverCard.querySelector('.hc-meta');
+      if (meta) meta.innerHTML += `<span class="hc-dot"></span><span style="color:var(--accent)">failed</span>`;
+    }
+  }, 200);
+}
+
+hoverCard.addEventListener('mouseenter', cancelHide);
+hoverCard.addEventListener('mouseleave', scheduleHide);
+
+window.addEventListener('scroll', () => {
+  if (!hoverCard.matches(':hover')) scheduleHide();
+}, { passive: true });
+
+window.addEventListener('resize', scheduleHide);
+
+/* ---------- BOOT ---------- */
+loadHome();
+
+/* ---------- RANDOM VIEW ---------- */
+const randomView   = document.getElementById('random-view');
+const randomGrid   = document.getElementById('randomGrid');
+const refreshRandom = document.getElementById('refreshRandom');
+
+function showRandom() {
+  homeView.classList.add('hidden');
+  playerView.classList.add('hidden');
+  randomView.classList.remove('hidden');
+  document.title = "Random Picks — Zara's Movies";
+}
+
+function showHomeView() {
+  randomView.classList.add('hidden');
+  homeView.classList.remove('hidden');
+  playerView.classList.add('hidden');
+  iframe.src = 'about:blank';
+  document.title = "Zara's Movies";
+}
+
+/* Override original showHome to also hide random view */
+window.showHome = function () {
+  randomView.classList.add('hidden');
+  homeView.classList.remove('hidden');
+  playerView.classList.add('hidden');
+  iframe.src = 'about:blank';
+  document.title = "Zara's Movies";
+};
+
+async function pickRandomMovie() {
+  // Grab a random page from discover, then pick a random item.
+  // Retry a couple times if we get an empty page.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const page = Math.floor(Math.random() * 500) + 1;
+    try {
+      const data = await tmdb(
+        `/discover/movie?sort_by=popularity.desc&vote_count.gte=200&vote_average.gte=6&page=${page}`
+      );
+      const results = data.results || [];
+      if (results.length) {
+        return results[Math.floor(Math.random() * results.length)];
+      }
+    } catch (err) {
+      console.error('pickRandomMovie attempt failed:', err);
+    }
+  }
+  return null;
+}
+
+function makeRandomCard(item) {
+  const card = document.createElement('div');
+  card.className = 'random-card';
+
+  const title = item.title || item.name || 'Untitled';
+  const year = (item.release_date || item.first_air_date || '').slice(0, 4);
+  const rating = (item.vote_average || 0).toFixed(1);
+  const votes = item.vote_count || 0;
+  const overview = item.overview || 'No description available.';
+  const poster = item.poster_path
+    ? `https://image.tmdb.org/t/p/w500${item.poster_path}`
+    : null;
+
+  card.innerHTML = `
+    <div class="random-poster">
+      ${poster
+        ? `<img src="${poster}" alt="${title}" loading="lazy" />`
+        : `<div class="poster-fallback">🎬</div>`}
+      <div class="rating-pill">
+        <span class="star">★</span> ${rating}
+      </div>
+    </div>
+    <div class="random-info">
+      <div class="random-title">${title}</div>
+      <div class="random-meta">
+        ${year ? `<span>${year}</span>` : ''}
+        ${year ? `<span class="dot"></span>` : ''}
+        <span>${votes.toLocaleString()} votes</span>
+      </div>
+      <p class="random-overview">${overview}</p>
+    </div>
+  `;
+
+  card.onclick = () => loadPlayer('movie', item.id, 1, 1, title);
+
+  // Reuse existing hover card
+  card.addEventListener('mouseenter', () => handleCardHover(card, 'movie', item));
+  card.addEventListener('mouseleave', scheduleHide);
+
+  return card;
+}
+
+function renderRandomSkeletons() {
+  randomGrid.innerHTML = '';
+  for (let i = 0; i < 8; i++) {
+    const s = document.createElement('div');
+    s.className = 'skeleton';
+    s.style.cssText = 'height:auto;aspect-ratio:2/3;border-radius:12px;';
+    randomGrid.appendChild(s);
+  }
+}
+
+async function refreshRandomGrid() {
+  if (!refreshRandom) return;
+  refreshRandom.disabled = true;
+  refreshRandom.classList.remove('spin');
+  void refreshRandom.offsetWidth;
+  refreshRandom.classList.add('spin');
+
+  renderRandomSkeletons();
+
+  try {
+    // Pick 8 unique movies
+    const seen = new Set();
+    const picks = [];
+    let guard = 0;
+    while (picks.length < 8 && guard < 30) {
+      guard++;
+      const m = await pickRandomMovie();
+      if (m && !seen.has(m.id)) {
+        seen.add(m.id);
+        picks.push(m);
+      }
+    }
+
+    randomGrid.innerHTML = '';
+    if (!picks.length) {
+      randomGrid.innerHTML = '<div class="random-empty">Couldn\'t fetch any picks. Try again.</div>';
+      return;
+    }
+    picks.forEach(item => randomGrid.appendChild(makeRandomCard(item)));
+  } catch (err) {
+    console.error('refreshRandomGrid failed:', err);
+    randomGrid.innerHTML = '<div class="random-empty">Something went wrong. Try again.</div>';
+  } finally {
+    setTimeout(() => {
+      refreshRandom.disabled = false;
+      refreshRandom.classList.remove('spin');
+    }, 500);
+  }
+}
+
+/* Wire up the header Random button to swap into the random view */
+function wireRandomButton() {
+  const header = document.querySelector('header');
+  if (!header || document.getElementById('randomBtn')) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'randomBtn';
+  btn.className = 'random-btn';
+  btn.title = 'Show random picks';
+  btn.innerHTML = '<span class="rb-icon">🎲</span> <span class="rb-label">Random</span>';
+  btn.onclick = () => {
+    showRandom();
+    refreshRandomGrid();
+  };
+  header.appendChild(btn);
+}
+
+wireRandomButton();
+if (refreshRandom) refreshRandom.onclick = refreshRandomGrid;
+
+/* If user navigates home via brand / backHome, ensure random view is hidden */
+document.addEventListener('DOMContentLoaded', () => {});
+
+/* ---------- GENRES ---------- */
+const GENRES = [
+  { id: 28,    name: 'Action' },
+  { id: 12,    name: 'Adventure' },
+  { id: 16,    name: 'Animation' },
+  { id: 35,    name: 'Comedy' },
+  { id: 80,    name: 'Crime' },
+  { id: 99,    name: 'Documentary' },
+  { id: 18,    name: 'Drama' },
+  { id: 10751, name: 'Family' },
+  { id: 14,    name: 'Fantasy' },
+  { id: 36,    name: 'History' },
+  { id: 27,    name: 'Horror' },
+  { id: 10402, name: 'Music' },
+  { id: 9648,  name: 'Mystery' },
+  { id: 10749, name: 'Romance' },
+  { id: 878,   name: 'Sci-Fi' },
+  { id: 53,    name: 'Thriller' },
+  { id: 10752, name: 'War' },
+  { id: 37,    name: 'Western' },
+];
+
+/* --- Random page genre dropdown --- */
+const randomGenreSelect = document.getElementById('randomGenre');
+if (randomGenreSelect) {
+  randomGenreSelect.innerHTML = '<option value="">All Genres</option>'
+    + GENRES.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+  randomGenreSelect.addEventListener('change', () => {
+    if (typeof refreshRandomGrid === 'function') refreshRandomGrid();
+  });
+}
+
+/* --- Override pickRandomMovie to respect genre filter --- */
+pickRandomMovie = async function () {
+  const genre = randomGenreSelect ? randomGenreSelect.value : '';
+  const genreParam = genre ? `&with_genres=${genre}` : '';
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const page = Math.floor(Math.random() * 400) + 1;
+    try {
+      const data = await tmdb(
+        `/discover/movie?sort_by=popularity.desc&vote_count.gte=100&vote_average.gte=5.5${genreParam}&page=${page}`
+      );
+      const results = data.results || [];
+      if (results.length) {
+        return results[Math.floor(Math.random() * results.length)];
+      }
+    } catch (err) {
+      console.error('pickRandomMovie attempt failed:', err);
+    }
+  }
+  return null;
+};
+
+/* --- Main page genre chips --- */
+const genreChipsEl = document.getElementById('genre-chips');
+if (genreChipsEl) {
+  genreChipsEl.innerHTML = GENRES.map(g =>
+    `<button class="genre-chip" data-id="${g.id}">${g.name}</button>`
+  ).join('');
+  genreChipsEl.querySelectorAll('.genre-chip').forEach(chip => {
+    chip.onclick = () => openGenreView(Number(chip.dataset.id), chip.textContent);
+  });
+}
+
+/* --- Genre view --- */
+const genreView    = document.getElementById('genre-view');
+const genreGrid    = document.getElementById('genreGrid');
+const genreTitle   = document.getElementById('genreTitle');
+const genreSub     = document.getElementById('genreSub');
+const genreBackBtn = document.getElementById('genreBack');
+
+async function openGenreView(genreId, genreName) {
+  homeView.classList.add('hidden');
+  playerView.classList.add('hidden');
+  randomView.classList.add('hidden');
+  genreView.classList.remove('hidden');
+  genreTitle.textContent = genreName;
+  genreSub.textContent = 'Top rated in this genre';
+  document.title = `${genreName} — Zara's Movies`;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  genreGrid.innerHTML = '';
+  for (let i = 0; i < 12; i++) {
+    const s = document.createElement('div');
+    s.className = 'skeleton';
+    s.style.cssText = 'height:auto;aspect-ratio:2/3;border-radius:12px;';
+    genreGrid.appendChild(s);
+  }
+
+  try {
+    // Fetch 2 pages in parallel for a fuller grid
+    const [p1, p2] = await Promise.all([
+      tmdb(`/discover/movie?sort_by=vote_average.desc&vote_count.gte=500&with_genres=${genreId}&page=1`),
+      tmdb(`/discover/movie?sort_by=vote_average.desc&vote_count.gte=500&with_genres=${genreId}&page=2`).catch(() => ({ results: [] }))
+    ]);
+    const results = [...(p1.results || []), ...(p2.results || [])];
+    const seen = new Set();
+    const unique = results.filter(r => !seen.has(r.id) && seen.add(r.id)).slice(0, 18);
+
+    genreGrid.innerHTML = '';
+    if (!unique.length) {
+      genreGrid.innerHTML = '<div class="random-empty">No titles found.</div>';
+      return;
+    }
+    unique.forEach(item => genreGrid.appendChild(makeRandomCard(item)));
+  } catch (err) {
+    console.error('Genre view failed:', err);
+    genreGrid.innerHTML = '<div class="random-empty">Something went wrong.</div>';
+  }
+}
+
+if (genreBackBtn) {
+  genreBackBtn.onclick = () => {
+    genreView.classList.add('hidden');
+    homeView.classList.remove('hidden');
+    document.title = "Zara's Movies";
+  };
+}
+
+/* --- Make sure other nav paths hide the genre view too --- */
+const _origShowHome = window.showHome;
+window.showHome = function () {
+  genreView.classList.add('hidden');
+  randomView.classList.add('hidden');
+  homeView.classList.remove('hidden');
+  playerView.classList.add('hidden');
+  iframe.src = 'about:blank';
+  document.title = "Zara's Movies";
+};
+
+const _origShowRandom = showRandom;
+showRandom = function () {
+  genreView.classList.add('hidden');
+  homeView.classList.add('hidden');
+  playerView.classList.add('hidden');
+  randomView.classList.remove('hidden');
+  document.title = "Random Picks — Zara's Movies";
+};
+
+/* ---------- Row arrows (click to scroll) ---------- */
+makeRow = function (titleText, items) {
+  const row = document.createElement('div');
+  row.className = 'row';
+
+  const heading = document.createElement('h2');
+  heading.className = 'row-title';
+  heading.textContent = titleText;
+  row.appendChild(heading);
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'row-wrapper';
+
+  const leftBtn = document.createElement('button');
+  leftBtn.className = 'row-arrow row-arrow-left';
+  leftBtn.innerHTML = '&#8249;'; // ‹
+  leftBtn.setAttribute('aria-label', 'Scroll left');
+
+  const rightBtn = document.createElement('button');
+  rightBtn.className = 'row-arrow row-arrow-right';
+  rightBtn.innerHTML = '&#8250;'; // ›
+  rightBtn.setAttribute('aria-label', 'Scroll right');
+
+  const scroll = document.createElement('div');
+  scroll.className = 'row-scroll';
+  items.forEach(item => scroll.appendChild(makeCard(item)));
+
+  wrapper.appendChild(leftBtn);
+  wrapper.appendChild(scroll);
+  wrapper.appendChild(rightBtn);
+  row.appendChild(wrapper);
+
+  const step = () => Math.max(scroll.clientWidth * 0.8, 320);
+
+  leftBtn.onclick = () => scroll.scrollBy({ left: -step(), behavior: 'smooth' });
+  rightBtn.onclick = () => scroll.scrollBy({ left:  step(), behavior: 'smooth' });
+
+  const updateArrows = () => {
+    const atStart = scroll.scrollLeft <= 4;
+    const atEnd = scroll.scrollLeft + scroll.clientWidth >= scroll.scrollWidth - 4;
+    leftBtn.classList.toggle('disabled', atStart);
+    rightBtn.classList.toggle('disabled', atEnd);
+  };
+
+  scroll.addEventListener('scroll', updateArrows, { passive: true });
+  requestAnimationFrame(updateArrows);
+  setTimeout(updateArrows, 400);
+  window.addEventListener('resize', updateArrows, { passive: true });
+
+  return row;
+};
+
+/* ---------- Main page genre dropdown (replaces chips) ---------- */
+(function setupMainGenreDropdown() {
+  const sel = document.getElementById('mainGenreSelect');
+  if (!sel) return;
+
+  // Populate options
+  sel.innerHTML = '<option value="">Select a genre...</option>'
+    + GENRES.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+
+  sel.addEventListener('change', () => {
+    const id = sel.value;
+    if (!id) return;
+    const name = sel.options[sel.selectedIndex].textContent;
+    openGenreView(Number(id), name);
+    // reset so picking the same option again still triggers change
+    setTimeout(() => { sel.value = ''; }, 400);
+  });
+})();
+
+/* ============================================================
+   TOP 100 — highest rated movies / TV
+   ============================================================ */
+
+const top100View    = document.getElementById('top100-view');
+const top100Grid    = document.getElementById('top100Grid');
+const top100Title   = document.getElementById('top100Title');
+const top100Sub     = document.getElementById('top100Sub');
+const top100Pagi    = document.getElementById('top100Pagination');
+const top100BackBtn = document.getElementById('top100Back');
+const top100Toggle  = document.getElementById('top100Toggle');
+
+let top100State = { type: 'movie', page: 1 };
+
+/* -------- IMDb lookup queue (throttled, cached) -------- */
+const imdbQueue = [];
+let imdbProcessing = false;
+
+function enqueueImdbJob(job) {
+  imdbQueue.push(job);
+  processImdbQueue();
+}
+
+async function processImdbQueue() {
+  if (imdbProcessing) return;
+  imdbProcessing = true;
+
+  while (imdbQueue.length) {
+    const job = imdbQueue.shift();
+    try {
+      const details = await fetchDetails(job.type, job.id);
+      if (details.imdb_id) {
+        const imdb = await fetchImdbRating(details.imdb_id);
+        if (imdb && imdb.rating) {
+          job.onRating(imdb.rating);
+        } else {
+          job.onRating(null);
+        }
+      } else {
+        job.onRating(null);
+      }
+    } catch (err) {
+      job.onRating(null);
+    }
+    // small gap to stay well under TMDB/OMDb rate limits
+    await new Promise(r => setTimeout(r, 220));
+  }
+
+  imdbProcessing = false;
+}
+
+/* -------- Fetch a page of top rated from TMDB -------- */
+async function fetchTop100(type, page) {
+  // Higher vote_count floor = only well-established titles
+  const minVotes = type === 'movie' ? 10000 : 2000;
+  const path = `/discover/${type}?sort_by=vote_average.desc&vote_count.gte=${minVotes}&page=${page}`;
+  const data = await tmdb(path);
+  return data.results || [];
+}
+
+/* -------- Build a Top 100 card -------- */
+function makeTop100Card(item, rank, type) {
+  const card = document.createElement('div');
+  card.className = 'top100-card';
+
+  const title = item.title || item.name || 'Untitled';
+  const year  = (item.release_date || item.first_air_date || '').slice(0, 4);
+  const tmdb  = (item.vote_average || 0).toFixed(1);
+  const poster = item.poster_path
+    ? `https://image.tmdb.org/t/p/w342${item.poster_path}`
+    : null;
+
+  card.innerHTML = `
+    <div class="top100-poster">
+      ${poster
+        ? `<img src="${poster}" alt="${title}" loading="lazy" />`
+        : `<div class="poster-fallback">🎬</div>`}
+      <div class="rank-badge">${rank}</div>
+      <div class="rating-stack">
+        <div class="rating-badge imdb loading" data-imdb>
+          <span class="lbl">IMDb</span> <span data-imdb-val>…</span>
+        </div>
+        <div class="rating-badge tmdb">
+          <span class="lbl">TMDB</span> ${tmdb}
+        </div>
+      </div>
+    </div>
+    <div class="top100-info">
+      <div class="top100-title">${title}</div>
+      <div class="top100-meta">${year || ''}${year ? ' · ' : ''}${type === 'tv' ? 'TV' : 'Movie'}</div>
+    </div>
+  `;
+
+  card.onclick = () => loadPlayer(type, item.id, 1, 1, title);
+  card.addEventListener('mouseenter', () => handleCardHover(card, type, item));
+  card.addEventListener('mouseleave', scheduleHide);
+
+  // Kick off IMDb rating lookup (fills in when ready)
+  const imdbBadge = card.querySelector('[data-imdb]');
+  const imdbVal   = card.querySelector('[data-imdb-val]');
+
+  enqueueImdbJob({
+    type,
+    id: item.id,
+    onRating: (rating) => {
+      imdbBadge.classList.remove('loading');
+      if (rating) {
+        imdbVal.textContent = rating;
+      } else {
+        imdbBadge.style.display = 'none';
+      }
+    }
+  });
+
+  return card;
+}
+
+/* -------- Pagination -------- */
+function renderPagination(totalPages) {
+  top100Pagi.innerHTML = '';
+  const { page } = top100State;
+
+  const mk = (label, target, opts = {}) => {
+    const b = document.createElement('button');
+    b.className = 'page-btn' + (opts.active ? ' active' : '');
+    b.textContent = label;
+    b.disabled = !!opts.disabled;
+    b.onclick = () => { if (!opts.disabled && !opts.active) loadTop100Page(target); };
+    return b;
+  };
+
+  top100Pagi.appendChild(mk('‹', page - 1, { disabled: page <= 1 }));
+
+  // Always show pages 1..5 with dots if needed (100 items = 5 pages)
+  const pages = [];
+  for (let i = 1; i <= totalPages; i++) pages.push(i);
+
+  if (totalPages <= 7) {
+    pages.forEach(n => top100Pagi.appendChild(mk(n, n, { active: n === page })));
+  } else {
+    // compact: 1 2 3 ... last
+    const show = new Set([1, 2, 3, page, totalPages]);
+    const sorted = [...show].filter(n => n >= 1 && n <= totalPages).sort((a, b) => a - b);
+    let last = 0;
+    sorted.forEach(n => {
+      if (n - last > 1) {
+        const d = document.createElement('span');
+        d.className = 'page-dots';
+        d.textContent = '…';
+        top100Pagi.appendChild(d);
+      }
+      top100Pagi.appendChild(mk(n, n, { active: n === page }));
+      last = n;
+    });
+  }
+
+  top100Pagi.appendChild(mk('›', page + 1, { disabled: page >= totalPages }));
+}
+
+/* -------- Load & render a page -------- */
+async function loadTop100Page(page) {
+  top100State.page = page;
+  top100Grid.innerHTML = '';
+
+  for (let i = 0; i < 20; i++) {
+    const s = document.createElement('div');
+    s.className = 'skeleton';
+    s.style.cssText = 'height:auto;aspect-ratio:2/3;border-radius:12px;';
+    top100Grid.appendChild(s);
+  }
+
+  try {
+    const items = await fetchTop100(top100State.type, page);
+    top100Grid.innerHTML = '';
+
+    if (!items.length) {
+      top100Grid.innerHTML = '<div class="random-empty">No titles found.</div>';
+      return;
+    }
+
+    // rank = ((page-1) * 20) + index + 1
+    items.forEach((item, i) => {
+      const rank = (page - 1) * 20 + i + 1;
+      top100Grid.appendChild(makeTop100Card(item, rank, top100State.type));
+    });
+
+    // TMDB discover gives ~5 usable pages (100 items)
+    renderPagination(5);
+  } catch (err) {
+    console.error('Top 100 failed:', err);
+    top100Grid.innerHTML = '<div class="random-empty">Something went wrong.</div>';
+  }
+}
+
+/* -------- Open the view -------- */
+async function openTop100(type = 'movie') {
+  top100State.type = type;
+  top100State.page = 1;
+
+  homeView.classList.add('hidden');
+  playerView.classList.add('hidden');
+  randomView.classList.add('hidden');
+  genreView.classList.add('hidden');
+  top100View.classList.remove('hidden');
+
+  const isTV = type === 'tv';
+  top100Title.textContent = isTV ? 'Top 100 TV Shows' : 'Top 100 Movies';
+  top100Sub.textContent = isTV
+    ? 'Highest rated series of all time'
+    : 'Highest rated films of all time';
+  document.title = (isTV ? 'Top 100 TV Shows' : 'Top 100 Movies') + " — Zara's Movies";
+
+  // Toggle active state
+  top100Toggle.querySelectorAll('.toggle-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.type === type);
+  });
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  await loadTop100Page(1);
+}
+
+/* -------- Wire up toggle + back -------- */
+if (top100Toggle) {
+  top100Toggle.querySelectorAll('.toggle-btn').forEach(btn => {
+    btn.onclick = () => openTop100(btn.dataset.type);
+  });
+}
+if (top100BackBtn) {
+  top100BackBtn.onclick = () => {
+    top100View.classList.add('hidden');
+    homeView.classList.remove('hidden');
+    document.title = "Zara's Movies";
+  };
+}
+
+/* -------- Add header button -------- */
+(function injectTop100Button() {
+  const header = document.querySelector('header');
+  if (!header || document.getElementById('top100Btn')) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'top100Btn';
+  btn.className = 'top100-btn';
+  btn.title = 'Top 100 highest rated';
+  btn.innerHTML = '<span class="t100-icon">🏆</span> <span class="t100-label">Top 100</span>';
+  btn.onclick = () => openTop100('movie');
+  header.appendChild(btn);
+})();
+
+/* -------- Make sure nav paths hide the top100 view too -------- */
+const _priorShowHome = window.showHome;
+window.showHome = function () {
+  top100View.classList.add('hidden');
+  genreView.classList.add('hidden');
+  randomView.classList.add('hidden');
+  homeView.classList.remove('hidden');
+  playerView.classList.add('hidden');
+  iframe.src = 'about:blank';
+  document.title = "Zara's Movies";
+};
+
+const _priorShowRandom = showRandom;
+showRandom = function () {
+  top100View.classList.add('hidden');
+  genreView.classList.add('hidden');
+  homeView.classList.add('hidden');
+  playerView.classList.add('hidden');
+  randomView.classList.remove('hidden');
+  document.title = "Random Picks — Zara's Movies";
+};
+
+/* ============================================================
+   ZARA'S CUSTOM LAYER — watchlist, continue watching, accent, TV picker
+   ============================================================ */
+(function () {
+  if (window.__zsCustomV2) return;
+  window.__zsCustomV2 = true;
+
+  /* ---------- Storage ---------- */
+  const LS_FAV = 'zs_favourites';
+  const LS_PROGRESS = 'zs_progress';
+  const LS_ACCENT = 'zs_accent';
+
+  function lsGet(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch { return fallback; }
+  }
+  function lsSet(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  }
+
+  /* ---------- Favourites ---------- */
+  function getFavourites() { return lsGet(LS_FAV, []); }
+  function setFavourites(arr) { lsSet(LS_FAV, arr); }
+
+  function favKey(type, id) { return `${type}:${id}`; }
+
+  function isFavourite(type, id) {
+    return getFavourites().some(f => f.type === type && f.id === id);
+  }
+
+  function toggleFavourite(item, type) {
+    const favs = getFavourites();
+    const idx = favs.findIndex(f => f.type === type && f.id === item.id);
+    if (idx >= 0) {
+      favs.splice(idx, 1);
+    } else {
+      favs.unshift({
+        id: item.id,
+        type,
+        title: item.title || item.name || 'Untitled',
+        poster_path: item.poster_path || null,
+        year: (item.release_date || item.first_air_date || '').slice(0, 4),
+        addedAt: Date.now(),
+      });
+    }
+    setFavourites(favs);
+    return idx < 0;
+  }
+
+  /* ---------- Heart button helper ---------- */
+  function attachHeart(cardEl, item, type) {
+    const btn = document.createElement('button');
+    btn.className = 'fav-btn' + (isFavourite(type, item.id) ? ' active' : '');
+    btn.innerHTML = isFavourite(type, item.id) ? '♥' : '♡';
+    btn.setAttribute('aria-label', 'Toggle watchlist');
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const added = toggleFavourite(item, type);
+      btn.classList.toggle('active', added);
+      btn.innerHTML = added ? '♥' : '♡';
+      // refresh home rows so watchlist row updates next time we go home
+      if (typeof window.refreshPersonalRows === 'function') {
+        window.refreshPersonalRows();
+      }
+    };
+    cardEl.appendChild(btn);
+  }
+
+  /* ---------- Progress storage ---------- */
+  function getProgressStore() { return lsGet(LS_PROGRESS, {}); }
+  function setProgressStore(store) { lsSet(LS_PROGRESS, store); }
+
+  function progressKey(type, id, season, episode) {
+    if (type === 'tv' && season && episode) return `${type}:${id}:${season}:${episode}`;
+    return `${type}:${id}`;
+  }
+
+  let lastProgressSave = 0;
+  let currentPlaying = null;
+
+  function saveProgress(time, duration) {
+    if (!currentPlaying) return;
+    const now = Date.now();
+    if (now - lastProgressSave < 4000) return;
+    lastProgressSave = now;
+
+    const { type, id, season, episode, title } = currentPlaying;
+    const store = getProgressStore();
+    const key = progressKey(type, id, season, episode);
+
+    // Skip if too early or almost done
+    if (!duration || time < 5 || time / duration > 0.92) {
+      if (store[key]) {
+        delete store[key];
+        setProgressStore(store);
+      }
+      return;
+    }
+
+    store[key] = {
+      type, id, season, episode, title,
+      time, duration,
+      updatedAt: now,
+    };
+    setProgressStore(store);
+  }
+
+  /* ---------- Wrap loadPlayer to remember what's playing + handle TV picker ---------- */
+  const _origLoadPlayer = loadPlayer;
+  loadPlayer = function (type, id, season, episode, title) {
+    currentPlaying = { type, id, season: season || 1, episode: episode || 1, title };
+    lastProgressSave = 0;
+    _origLoadPlayer(type, id, season, episode, title);
+    if (type === 'tv') {
+      renderTVPicker(id, season || 1, episode || 1);
+    } else {
+      hideTVPicker();
+    }
+  };
+
+  /* ---------- Continue Watching row ---------- */
+  function makeContinueCard(entry) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.position = 'relative';
+
+    const posterUrl = entry.poster_path
+      ? `https://image.tmdb.org/t/p/w342${entry.poster_path}`
+      : null;
+
+    const imgHtml = posterUrl
+      ? `<img src="${posterUrl}" alt="${entry.title}" loading="lazy" />`
+      : `<div class="card-fallback">🎬</div>`;
+
+    const pct = entry.duration ? Math.min(100, (entry.time / entry.duration) * 100) : 0;
+
+    card.innerHTML = `
+      ${imgHtml}
+      <div class="progress-strip"><span style="width:${pct}%"></span></div>
+      <div class="card-info">
+        <div class="card-title">${entry.title || 'Untitled'}</div>
+        <div class="card-meta">
+          ${entry.type === 'tv' ? `S${entry.season} · E${entry.episode}` : 'Movie'}
+          ${entry.duration ? ` · ${Math.round(pct)}%` : ''}
+        </div>
+      </div>
+    `;
+
+    // Remove button
+    const rm = document.createElement('button');
+    rm.className = 'remove-btn';
+    rm.innerHTML = '✕';
+    rm.title = 'Remove from Continue Watching';
+    rm.onclick = (e) => {
+      e.stopPropagation();
+      const store = getProgressStore();
+      const key = progressKey(entry.type, entry.id, entry.season, entry.episode);
+      delete store[key];
+      setProgressStore(store);
+      card.parentElement && card.parentElement.removeChild(card);
+      if (!card.parentElement || !card.parentElement.children.length) {
+        const rowEl = card.closest('.row');
+        rowEl && rowEl.remove();
+      }
+    };
+    card.appendChild(rm);
+
+    card.onclick = () => loadPlayer(entry.type, entry.id, entry.season, entry.episode, entry.title);
+    return card;
+  }
+
+  async function buildContinueWatchingRow() {
+    const store = getProgressStore();
+    const entries = Object.values(store)
+      .filter(e => e.updatedAt)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 12);
+
+    if (!entries.length) return null;
+
+    // Enrich with posters via fetchDetails (uses existing cache)
+    const enriched = await Promise.all(entries.map(async (e) => {
+      if (e.poster_path) return e;
+      try {
+        const details = await fetchDetails(e.type, e.id);
+        return { ...e, poster_path: details.poster_path };
+      } catch { return e; }
+    }));
+
+    const row = document.createElement('div');
+    row.className = 'row row-personal';
+    const heading = document.createElement('h2');
+    heading.className = 'row-title';
+    heading.textContent = '▶️ Continue Watching';
+    row.appendChild(heading);
+
+    const scroll = document.createElement('div');
+    scroll.className = 'row-scroll';
+    enriched.forEach(e => scroll.appendChild(makeContinueCard(e)));
+    row.appendChild(scroll);
+    return row;
+  }
+
+  /* ---------- Watchlist row ---------- */
+  function buildWatchlistRow() {
+    const favs = getFavourites();
+    if (!favs.length) return null;
+
+    const row = document.createElement('div');
+    row.className = 'row row-personal';
+    const heading = document.createElement('h2');
+    heading.className = 'row-title';
+    heading.textContent = '♥ Your Watchlist';
+    row.appendChild(heading);
+
+    const scroll = document.createElement('div');
+    scroll.className = 'row-scroll';
+
+    favs.forEach(fav => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.position = 'relative';
+
+      const posterUrl = fav.poster_path
+        ? `https://image.tmdb.org/t/p/w342${fav.poster_path}`
+        : null;
+      const imgHtml = posterUrl
+        ? `<img src="${posterUrl}" alt="${fav.title}" loading="lazy" />`
+        : `<div class="card-fallback">🎬</div>`;
+
+      card.innerHTML = `
+        ${imgHtml}
+        <div class="card-info">
+          <div class="card-title">${fav.title}</div>
+          <div class="card-meta">${fav.year || ''}${fav.year ? ' · ' : ''}${fav.type === 'tv' ? 'TV' : 'Movie'}</div>
+        </div>
+      `;
+
+      const rm = document.createElement('button');
+      rm.className = 'remove-btn';
+      rm.innerHTML = '✕';
+      rm.title = 'Remove from Watchlist';
+      rm.onclick = (e) => {
+        e.stopPropagation();
+        const list = getFavourites().filter(x => !(x.type === fav.type && x.id === fav.id));
+        setFavourites(list);
+        card.parentElement && card.parentElement.removeChild(card);
+        if (!card.parentElement || !card.parentElement.children.length) {
+          const rowEl = card.closest('.row');
+          rowEl && rowEl.remove();
+        }
+      };
+      card.appendChild(rm);
+
+      card.onclick = () => loadPlayer(fav.type, fav.id, 1, 1, fav.title);
+      scroll.appendChild(card);
+    });
+
+    row.appendChild(scroll);
+    return row;
+  }
+
+  /* ---------- Inject personal rows into home view ---------- */
+  async function injectPersonalRows() {
+    // Remove existing personal rows if any
+    rowsEl.querySelectorAll('.row-personal').forEach(el => el.remove());
+
+    const firstRow = rowsEl.firstChild;
+
+    const watchlistRow = buildWatchlistRow();
+    const continueRow = await buildContinueWatchingRow();
+
+    // Insert so order is: Continue Watching, Watchlist, then the rest
+    if (watchlistRow) {
+      if (firstRow) rowsEl.insertBefore(watchlistRow, firstRow);
+      else rowsEl.appendChild(watchlistRow);
+    }
+    if (continueRow) {
+      if (firstRow) rowsEl.insertBefore(continueRow, firstRow);
+      else rowsEl.appendChild(continueRow);
+    }
+  }
+
+  // Wrap loadHome so personal rows appear after the trending/popular rows load
+  const _origLoadHome = loadHome;
+  loadHome = async function () {
+    await _origLoadHome();
+    try { await injectPersonalRows(); } catch (e) { console.error('personal rows failed', e); }
+  };
+
+  // Expose so hearts can trigger a refresh
+  window.refreshPersonalRows = injectPersonalRows;
+
+  /* ---------- Heart overlay on all existing cards (MutationObserver) ---------- */
+  // Existing card builders don't know about favorites — we detect new cards and add hearts.
+  const heartObserver = new MutationObserver((mutations) => {
+    mutations.forEach((m) => {
+      m.addedNodes.forEach((node) => {
+        if (node.nodeType !== 1) return;
+        if (node.classList && node.classList.contains('card') && !node.querySelector('.fav-btn')) {
+          const title = node.querySelector('.card-title')?.textContent || '';
+          const meta = node.querySelector('.card-meta')?.textContent || '';
+          const type = /TV/.test(meta) ? 'tv' : 'movie';
+          const id = node.__zsItemId;
+          const posterImg = node.querySelector('img');
+          const posterPath = posterImg
+            ? posterImg.src.replace('https://image.tmdb.org/t/p/w342', '').replace('https://image.tmdb.org/t/p/w500', '')
+            : null;
+          // Only add heart if we know the id (attached by patched builders below)
+          if (id) {
+            attachHeart(node, {
+              id,
+              title,
+              poster_path: posterPath,
+              release_date: (meta.match(/\b(19|20)\d{2}\b/) || [''])[0],
+            }, type);
+          }
+        }
+      });
+    });
+  });
+  heartObserver.observe(rowsEl, { childList: true, subtree: false });
+  heartObserver.observe(document.getElementById('randomGrid') || document.body, { childList: true, subtree: false });
+  heartObserver.observe(document.getElementById('top100Grid') || document.body, { childList: true, subtree: false });
+  heartObserver.observe(document.getElementById('genreGrid') || document.body, { childList: true, subtree: false });
+
+  /* ---------- Patch card builders to stamp the TMDB id ---------- */
+  const _origMakeCard = window.makeCard;
+  if (typeof _origMakeCard === 'function') {
+    window.makeCard = function (item, typeOverride) {
+      const card = _origMakeCard(item, typeOverride);
+      card.__zsItemId = item.id;
+      const type = typeOverride
+        || (item.media_type === 'tv' ? 'tv'
+          : item.media_type === 'movie' ? 'movie'
+          : (item.first_air_date ? 'tv' : 'movie'));
+      if (!card.querySelector('.fav-btn')) attachHeart(card, item, type);
+      return card;
+    };
+    makeCard = window.makeCard;
+  }
+
+  /* ---------- ACCENT PICKER ---------- */
+  const ACCENTS = {
+    pink:     { label: 'Pink',     base: '#ffb6d9', light: '#ffd1e6', deep: '#ff8fc7' },
+    lavender: { label: 'Lavender', base: '#c9b6ff', light: '#e0d1ff', deep: '#a88fff' },
+    mint:     { label: 'Mint',     base: '#a8e6cf', light: '#c9f0e0', deep: '#7fd4b5' },
+    sky:      { label: 'Sky',      base: '#a8d8ff', light: '#c9e5ff', deep: '#7fbcff' },
+    peach:    { label: 'Peach',    base: '#ffc9a8', light: '#ffddc9', deep: '#ffab7f' },
+    coral:    { label: 'Coral',    base: '#ffa8b8', light: '#ffc9d3', deep: '#ff7f95' },
+  };
+
+  function hexToRgba(hex, alpha) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function applyAccent(key) {
+    const a = ACCENTS[key] || ACCENTS.pink;
+    const root = document.documentElement;
+    root.style.setProperty('--accent', a.base);
+    root.style.setProperty('--accent-2', a.light);
+    root.style.setProperty('--accent-deep', a.deep);
+    root.style.setProperty('--accent-glow', hexToRgba(a.base, 0.25));
+    root.style.setProperty('--accent-glow-strong', hexToRgba(a.base, 0.45));
+    root.dataset.accentHex = a.base.replace('#', '');
+    lsSet(LS_ACCENT, key);
+  }
+
+  // Init accent from storage
+  applyAccent(lsGet(LS_ACCENT, 'pink'));
+
+  // Patch buildUrl so CineSrc player color follows accent
+  const _origBuildUrl = buildUrl;
+  buildUrl = function (type, id, season, episode) {
+    const hex = document.documentElement.dataset.accentHex || 'ffb6d9';
+    return type === 'movie'
+      ? `${ORIGIN}/embed/movie/${id}?back=close&color=%23${hex}`
+      : `${ORIGIN}/embed/tv/${id}?s=${season}&e=${episode}&back=close&color=%23${hex}`;
+  };
+
+  /* Build the picker UI in the header */
+  function buildAccentPicker() {
+    const header = document.querySelector('header');
+    if (!header || document.getElementById('accentBtn')) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'accentBtn';
+    btn.className = 'icon-btn';
+    btn.title = 'Change accent colour';
+    btn.innerHTML = '🎨';
+    header.appendChild(btn);
+
+    let popover = null;
+
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      if (popover) { popover.remove(); popover = null; return; }
+
+      popover = document.createElement('div');
+      popover.className = 'accent-popover';
+      popover.innerHTML = `<h4>Accent</h4>
+        <div class="accent-swatches">
+          ${Object.entries(ACCENTS).map(([key, a]) => `
+            <div class="accent-swatch${lsGet(LS_ACCENT, 'pink') === key ? ' active' : ''}"
+                 data-key="${key}" title="${a.label}"
+                 style="background:${a.base}"></div>
+          `).join('')}
+        </div>`;
+      document.body.appendChild(popover);
+
+      popover.querySelectorAll('.accent-swatch').forEach(sw => {
+        sw.onclick = (ev) => {
+          ev.stopPropagation();
+          applyAccent(sw.dataset.key);
+          popover.querySelectorAll('.accent-swatch').forEach(s => s.classList.remove('active'));
+          sw.classList.add('active');
+        };
+      });
+    };
+
+    document.addEventListener('click', () => {
+      if (popover) { popover.remove(); popover = null; }
+    });
+  }
+  buildAccentPicker();
+
+  /* ---------- TV EPISODE PICKER ---------- */
+  function ensureTVPicker() {
+    let picker = document.getElementById('tv-picker');
+    if (picker) return picker;
+    picker = document.createElement('div');
+    picker.id = 'tv-picker';
+    picker.className = 'tv-picker hidden';
+    const playerView = document.getElementById('player-view');
+    const statusEl = document.getElementById('status');
+    playerView.insertBefore(picker, statusEl);
+    return picker;
+  }
+
+  function hideTVPicker() {
+    const p = document.getElementById('tv-picker');
+    if (p) p.classList.add('hidden');
+  }
+
+  let tvState = { id: null, season: 1, episode: 1 };
+
+  async function renderTVPicker(tvId, season, episode) {
+    tvState = { id: tvId, season, episode };
+    const picker = ensureTVPicker();
+    picker.classList.remove('hidden');
+    picker.innerHTML = '<div class="tv-picker-empty">Loading episodes…</div>';
+
+    try {
+      const show = await fetchDetails('tv', tvId);
+      const seasons = (show.seasons || []).filter(s => s.season_number > 0 && s.episode_count > 0);
+      if (!seasons.length) {
+        picker.innerHTML = '<div class="tv-picker-empty">No episodes found.</div>';
+        return;
+      }
+
+      // if current season not in list, pick first
+      if (!seasons.some(s => s.season_number === season)) season = seasons[0].season_number;
+
+      picker.innerHTML = `
+        <div class="tv-picker-head">
+          <h3>${show.name || 'Episodes'} <span>· S${season}</span></h3>
+          <select class="season-select" id="tvSeasonSelect">
+            ${seasons.map(s => `
+              <option value="${s.season_number}" ${s.season_number === season ? 'selected' : ''}>
+                ${s.name || `Season ${s.season_number}`} (${s.episode_count})
+              </option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="episode-grid" id="tvEpisodeGrid">
+          <div class="episode-empty">Loading episodes…</div>
+        </div>
+      `;
+
+      picker.querySelector('#tvSeasonSelect').onchange = (e) => {
+        renderTVPicker(tvId, Number(e.target.value), 1);
+      };
+
+      const seasonData = await tmdbWithRetry(`/tv/${tvId}/season/${season}`);
+      const episodes = seasonData.episodes || [];
+      const grid = picker.querySelector('#tvEpisodeGrid');
+      grid.innerHTML = '';
+
+      if (!episodes.length) {
+        grid.innerHTML = '<div class="episode-empty">No episodes in this season.</div>';
+        return;
+      }
+
+      episodes.forEach(ep => {
+        const card = document.createElement('div');
+        card.className = 'episode-card' + (ep.episode_number === episode ? ' active' : '');
+
+        const still = ep.still_path
+          ? `<img src="https://image.tmdb.org/t/p/w300${ep.still_path}" alt="" loading="lazy" />`
+          : '';
+        const meta = [
+          ep.air_date || '',
+          ep.runtime ? `${ep.runtime} min` : '',
+        ].filter(Boolean).join(' · ');
+
+        card.innerHTML = `
+          <div class="episode-still">
+            ${still}
+            <span class="ep-num">E${ep.episode_number}</span>
+          </div>
+          <div class="episode-info">
+            <div class="episode-title">${ep.name || `Episode ${ep.episode_number}`}</div>
+            <div class="episode-meta">${meta}</div>
+          </div>
+        `;
+
+        card.onclick = () => {
+          picker.querySelectorAll('.episode-card').forEach(c => c.classList.remove('active'));
+          card.classList.add('active');
+          loadPlayer('tv', tvId, season, ep.episode_number, show.name || '');
+        };
+
+        grid.appendChild(card);
+      });
+
+      // scroll active card into view
+      const activeCard = grid.querySelector('.episode-card.active');
+      if (activeCard) {
+        activeCard.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+
+    } catch (err) {
+      console.error('TV picker failed:', err);
+      picker.innerHTML = '<div class="tv-picker-empty">Couldn\'t load episodes.</div>';
+    }
+  }
+
+  /* ---------- Hook into player messages for progress ---------- */
+  window.addEventListener('message', (event) => {
+    if (event.origin !== ORIGIN) return;
+    const data = event.data;
+    if (!data || data.type !== 'cinesrc:timeupdate') return;
+    try { saveProgress(data.currentTime, data.duration); } catch {}
+  });
+
+  /* ---------- Update showHome to hide TV picker ---------- */
+  const _priorShowHome2 = window.showHome;
+  window.showHome = function () {
+    _priorShowHome2();
+    hideTVPicker();
+    currentPlaying = null;
+    // refresh personal rows on returning home
+    setTimeout(() => { try { injectPersonalRows(); } catch {} }, 100);
+  };
+
+  /* ---------- Boot: refresh personal rows after home loads ---------- */
+  setTimeout(() => { try { injectPersonalRows(); } catch {} }, 800);
+
+  console.log('[ZS] Custom layer v2 loaded — watchlist, continue watching, accent picker, TV picker');
+})();
+
+/* ============================================================
+   DISCOVERY v3 — discover hub, decades, services, top-by-genre,
+                  person pages, similar titles, collections
+   ============================================================ */
+(function () {
+  if (window.__zsCustomV3) return;
+  window.__zsCustomV3 = true;
+
+  /* ---------- Small storage helpers (independent from v2) ---------- */
+  function lsGet(key, fb) {
+    try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : fb; } catch { return fb; }
+  }
+
+  /* ---------- Constants ---------- */
+  const DECADES = [
+    { key: '2020', label: '2020s', gte: '2020-01-01', lte: '2029-12-31' },
+    { key: '2010', label: '2010s', gte: '2010-01-01', lte: '2019-12-31' },
+    { key: '2000', label: '2000s', gte: '2000-01-01', lte: '2009-12-31' },
+    { key: '1990', label: '1990s', gte: '1990-01-01', lte: '1999-12-31' },
+    { key: '1980', label: '1980s', gte: '1980-01-01', lte: '1989-12-31' },
+    { key: '1970', label: '1970s', gte: '1970-01-01', lte: '1979-12-31' },
+    { key: '1960', label: '1960s', gte: '1960-01-01', lte: '1969-12-31' },
+    { key: '1950', label: '1950s', gte: '1950-01-01', lte: '1959-12-31' },
+  ];
+
+  const SERVICES = [
+    { id: 8,    label: 'Netflix' },
+    { id: 9,    label: 'Amazon Prime' },
+    { id: 337,  label: 'Disney+' },
+    { id: 15,   label: 'Hulu' },
+    { id: 1899, label: 'Max' },
+    { id: 350,  label: 'Apple TV+' },
+    { id: 531,  label: 'Paramount+' },
+    { id: 386,  label: 'Peacock' },
+    { id: 283,  label: 'Crunchyroll' },
+  ];
+
+  const DISCOVER_FILTERS = [
+    { key: 'new',       label: '🎬 New Releases' },
+    { key: 'upcoming',  label: '📅 Upcoming' },
+    { key: 'airing',    label: '📺 Airing Today' },
+    { key: 'trending',  label: '🔥 Trending' },
+    { key: 'decade',    label: '📆 By Decade' },
+    { key: 'service',   label: '📡 By Service' },
+    { key: 'top-genre', label: '🏆 Top 100 by Genre' },
+  ];
+
+  /* ---------- Element refs ---------- */
+  const discoverView   = document.getElementById('discover-view');
+  const discoverSub    = document.getElementById('discoverSub');
+  const discoverFilters= document.getElementById('discoverFilters');
+  const discoverCtrls  = document.getElementById('discoverControls');
+  const discoverGrid   = document.getElementById('discoverGrid');
+  const discoverPagi   = document.getElementById('discoverPagination');
+  const discoverBack   = document.getElementById('discoverBack');
+
+  const personView   = document.getElementById('person-view');
+  const personHeader = document.getElementById('personHeader');
+  const personGrid   = document.getElementById('personGrid');
+  const personBack   = document.getElementById('personBack');
+
+  const collectionView   = document.getElementById('collection-view');
+  const collectionBanner = document.getElementById('collectionBanner');
+  const collectionGrid   = document.getElementById('collectionGrid');
+  const collectionBack   = document.getElementById('collectionBack');
+
+  const similarSection = document.getElementById('similar-section');
+  const similarGrid    = document.getElementById('similarGrid');
+
+  /* ---------- Caches ---------- */
+  const v3DetailCache  = new Map();
+  const v3CreditsCache = new Map();
+  const v3SimilarCache = new Map();
+
+  async function v3Details(type, id) {
+    const key = `${type}:${id}`;
+    if (v3DetailCache.has(key)) return v3DetailCache.get(key);
+    const data = await tmdb(`/${type}/${id}`);
+    v3DetailCache.set(key, data);
+    return data;
+  }
+  async function v3Credits(type, id) {
+    const key = `${type}:${id}`;
+    if (v3CreditsCache.has(key)) return v3CreditsCache.get(key);
+    try {
+      const data = await tmdb(`/${type}/${id}/credits`);
+      v3CreditsCache.set(key, data);
+      return data;
+    } catch { v3CreditsCache.set(key, { cast: [], crew: [] }); return { cast: [], crew: [] }; }
+  }
+  async function v3Similar(type, id) {
+    const key = `${type}:${id}`;
+    if (v3SimilarCache.has(key)) return v3SimilarCache.get(key);
+    try {
+      const data = await tmdb(`/${type}/${id}/similar`);
+      const results = data.results || [];
+      v3SimilarCache.set(key, results);
+      return results;
+    } catch { v3SimilarCache.set(key, []); return []; }
+  }
+
+  /* ---------- View switcher ---------- */
+  function hideAllViews() {
+    ['home-view','player-view','random-view','genre-view','top100-view','discover-view','person-view','collection-view']
+      .forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+      });
+  }
+
+  function wireBackHandlers() {
+    const anyBackToList = [
+      [discoverBack, discoverView, 'CineSrc'],
+      [personBack,   personView,   'CineSrc'],
+      [collectionBack, collectionView, 'CineSrc'],
+    ];
+    anyBackToList.forEach(([btn, view, title]) => {
+      if (!btn || !view) return;
+      btn.onclick = () => {
+        view.classList.add('hidden');
+        homeView.classList.remove('hidden');
+        document.title = "Zara's Movies";
+      };
+    });
+  }
+
+  /* ---------- Build a simple grid card (uses makeRandomCard + hearts) ---------- */
+  function gridCard(item) {
+    const type = item.media_type === 'tv' || item.first_air_date ? 'tv' : 'movie';
+    // makeRandomCard produces a nice aspect-ratio poster card; reuse it
+    const card = makeRandomCard(item);
+    // stash the item so hover card can pick it up
+    card.__zsItem = item;
+    card.__zsType = type;
+    return card;
+  }
+
+  function fillGrid(container, items) {
+    container.innerHTML = '';
+    if (!items.length) {
+      container.innerHTML = '<div class="random-empty">No results found.</div>';
+      return;
+    }
+    items.forEach(item => container.appendChild(gridCard(item)));
+  }
+
+  function showSkeletons(container, count = 12) {
+    container.innerHTML = '';
+    for (let i = 0; i < count; i++) {
+      const s = document.createElement('div');
+      s.className = 'skeleton';
+      s.style.cssText = 'height:auto;aspect-ratio:2/3;border-radius:12px;';
+      container.appendChild(s);
+    }
+  }
+
+  /* ---------- Pagination ---------- */
+  function renderPager(container, current, total, onPage) {
+    container.innerHTML = '';
+    const mk = (label, target, opts = {}) => {
+      const b = document.createElement('button');
+      b.className = 'page-btn' + (opts.active ? ' active' : '');
+      b.textContent = label;
+      b.disabled = !!opts.disabled;
+      b.onclick = () => { if (!opts.disabled && !opts.active) onPage(target); };
+      return b;
+    };
+    container.appendChild(mk('‹', current - 1, { disabled: current <= 1 }));
+    for (let i = 1; i <= total; i++) {
+      container.appendChild(mk(i, i, { active: i === current }));
+    }
+    container.appendChild(mk('›', current + 1, { disabled: current >= total }));
+  }
+
+  /* ========================================================
+     DISCOVER VIEW
+     ======================================================== */
+  let discoverState = { filter: 'new', page: 1, decade: DECADES[0].key, service: SERVICES[0].id, genre: 28 };
+
+  function buildDiscoverFilters() {
+    discoverFilters.innerHTML = '';
+    DISCOVER_FILTERS.forEach(f => {
+      const pill = document.createElement('button');
+      pill.className = 'filter-pill' + (f.key === discoverState.filter ? ' active' : '');
+      pill.textContent = f.label;
+      pill.onclick = () => {
+        discoverState.filter = f.key;
+        discoverState.page = 1;
+        discoverFilters.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        buildDiscoverControls();
+        loadDiscoverPage(1);
+      };
+      discoverFilters.appendChild(pill);
+    });
+  }
+
+  function buildDiscoverControls() {
+    discoverCtrls.innerHTML = '';
+    const sel = document.createElement('select');
+    sel.className = 'genre-select';
+
+    if (discoverState.filter === 'decade') {
+      sel.innerHTML = DECADES.map(d => `<option value="${d.key}" ${d.key===discoverState.decade?'selected':''}>${d.label}</option>`).join('');
+      sel.onchange = () => { discoverState.decade = sel.value; loadDiscoverPage(1); };
+      discoverCtrls.appendChild(sel);
+    } else if (discoverState.filter === 'service') {
+      sel.innerHTML = SERVICES.map(s => `<option value="${s.id}" ${s.id===discoverState.service?'selected':''}>${s.label}</option>`).join('');
+      sel.onchange = () => { discoverState.service = Number(sel.value); loadDiscoverPage(1); };
+      discoverCtrls.appendChild(sel);
+    } else if (discoverState.filter === 'top-genre') {
+      sel.innerHTML = GENRES.map(g => `<option value="${g.id}" ${g.id===discoverState.genre?'selected':''}>${g.name}</option>`).join('');
+      sel.onchange = () => { discoverState.genre = Number(sel.value); loadDiscoverPage(1); };
+      discoverCtrls.appendChild(sel);
+    }
+  }
+
+  function discoverPathFor(filter, page, state) {
+    switch (filter) {
+      case 'new':      return { path: `/movie/now_playing?page=${page}`,          label: 'New Releases' };
+      case 'upcoming': return { path: `/movie/upcoming?page=${page}`,             label: 'Upcoming Movies' };
+      case 'airing':   return { path: `/tv/airing_today?page=${page}`,            label: 'Airing Today' };
+      case 'trending': return { path: `/trending/all/week?page=${page}`,          label: 'Trending This Week' };
+      case 'decade': {
+        const d = DECADES.find(x => x.key === state.decade) || DECADES[0];
+        return {
+          path: `/discover/movie?sort_by=popularity.desc&vote_count.gte=200&primary_release_date.gte=${d.gte}&primary_release_date.lte=${d.lte}&page=${page}`,
+          label: `Top ${d.label} Movies`
+        };
+      }
+      case 'service': {
+        const s = SERVICES.find(x => x.id === state.service) || SERVICES[0];
+        return {
+          path: `/discover/movie?sort_by=popularity.desc&vote_count.gte=100&with_watch_providers=${s.id}&watch_region=US&page=${page}`,
+          label: `On ${s.label}`
+        };
+      }
+      case 'top-genre': {
+        const g = GENRES.find(x => x.id === state.genre) || GENRES[0];
+        return {
+          path: `/discover/movie?sort_by=vote_average.desc&vote_count.gte=500&with_genres=${g.id}&page=${page}`,
+          label: `Top 100 ${g.name}`
+        };
+      }
+      default:
+        return { path: `/trending/all/week?page=${page}`, label: 'Discover' };
+    }
+  }
+
+  async function loadDiscoverPage(page) {
+    discoverState.page = page;
+    showSkeletons(discoverGrid, 12);
+    discoverPagi.innerHTML = '';
+    try {
+      const { path, label } = discoverPathFor(discoverState.filter, page, discoverState);
+      discoverSub.textContent = label;
+      const data = await tmdb(path);
+      fillGrid(discoverGrid, (data.results || []).filter(x => x.poster_path));
+      const totalPages = Math.min(data.total_pages || 1, 8);
+      renderPager(discoverPagi, page, totalPages, loadDiscoverPage);
+    } catch (err) {
+      console.error('Discover load failed:', err);
+      discoverGrid.innerHTML = '<div class="random-empty">Couldn\'t load. Try again.</div>';
+    }
+  }
+
+  function openDiscover() {
+    hideAllViews();
+    discoverView.classList.remove('hidden');
+    document.title = "Discover — Zara's Movies";
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    buildDiscoverFilters();
+    buildDiscoverControls();
+    loadDiscoverPage(1);
+  }
+
+  /* ========================================================
+     PERSON VIEW
+     ======================================================== */
+  async function openPersonView(personId) {
+    hideAllViews();
+    personView.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    personHeader.innerHTML = '<div class="person-photo"><div class="photo-fallback">👤</div></div>';
+    showSkeletons(personGrid, 12);
+
+    try {
+      const person = await tmdb(`/person/${personId}`);
+      document.title = `${person.name} — Zara's Movies`;
+
+      const photo = person.profile_path
+        ? `<img src="https://image.tmdb.org/t/p/w300${person.profile_path}" alt="${person.name}" />`
+        : `<div class="photo-fallback">👤</div>`;
+
+      const birthday = person.birthday || '';
+      const place = person.place_of_birth || '';
+      const dept = person.known_for_department || '';
+      const bio = person.biography || '';
+
+      personHeader.innerHTML = `
+        <div class="person-photo">${photo}</div>
+        <div class="person-info">
+          <h1 class="person-name">${person.name}</h1>
+          <div class="person-meta">
+            ${dept ? `<span><strong>Known for</strong>${dept}</span>` : ''}
+            ${birthday ? `<span><strong>Born</strong>${birthday}</span>` : ''}
+            ${place ? `<span><strong>From</strong>${place}</span>` : ''}
+          </div>
+          ${bio ? `<p class="person-bio collapsed" id="personBio">${bio}</p>
+                   <button class="bio-toggle" id="bioToggle">Read more</button>` : ''}
+        </div>
+      `;
+
+      const bioEl = document.getElementById('personBio');
+      const bioBtn = document.getElementById('bioToggle');
+      if (bioEl && bioBtn) {
+        bioBtn.onclick = () => {
+          bioEl.classList.toggle('collapsed');
+          bioBtn.textContent = bioEl.classList.contains('collapsed') ? 'Read more' : 'Show less';
+        };
+      }
+
+      // Filmography
+      const credits = await tmdb(`/person/${personId}/combined_credits`);
+      const seen = new Set();
+      const items = (credits.cast || [])
+        .filter(c => c.poster_path && (c.media_type === 'movie' || c.media_type === 'tv'))
+        .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
+        .filter(c => {
+          const key = `${c.media_type}:${c.id}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .slice(0, 40);
+
+      fillGrid(personGrid, items);
+    } catch (err) {
+      console.error('Person load failed:', err);
+      personHeader.innerHTML = '<div class="random-empty">Couldn\'t load person.</div>';
+      personGrid.innerHTML = '';
+    }
+  }
+
+  /* ========================================================
+     COLLECTION VIEW
+     ======================================================== */
+  async function openCollectionView(collectionId, fallbackName) {
+    hideAllViews();
+    collectionView.classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    collectionBanner.classList.add('hidden');
+    showSkeletons(collectionGrid, 10);
+
+    try {
+      const data = await tmdb(`/collection/${collectionId}`);
+      document.title = `${data.name || fallbackName || 'Collection'} — Zara's Movies`;
+
+      const backdrop = data.backdrop_path
+        ? `https://image.tmdb.org/t/p/original${data.backdrop_path}`
+        : (data.parts?.[0]?.backdrop_path
+          ? `https://image.tmdb.org/t/p/original${data.parts[0].backdrop_path}`
+          : '');
+
+      collectionBanner.classList.remove('hidden');
+      collectionBanner.innerHTML = `
+        ${backdrop ? `<div class="cb-bg" style="background-image:url('${backdrop}')"></div>` : ''}
+        <div class="cb-content">
+          <h1>${data.name || fallbackName || 'Collection'}</h1>
+          <p>${data.overview || ''}</p>
+        </div>
+      `;
+
+      const parts = (data.parts || [])
+        .filter(p => p.poster_path)
+        .sort((a, b) => (a.release_date || '').localeCompare(b.release_date || ''));
+
+      fillGrid(collectionGrid, parts);
+    } catch (err) {
+      console.error('Collection load failed:', err);
+      collectionGrid.innerHTML = '<div class="random-empty">Couldn\'t load collection.</div>';
+    }
+  }
+
+  /* ========================================================
+     SIMILAR TITLES (player view)
+     ======================================================== */
+  let similarRequestId = 0;
+  async function loadSimilar(type, id) {
+    if (!similarSection || !similarGrid) return;
+    const reqId = ++similarRequestId;
+    similarSection.classList.remove('hidden');
+    showSkeletons(similarGrid, 8);
+    try {
+      const items = (await v3Similar(type, id)).filter(x => x.poster_path).slice(0, 12);
+      if (reqId !== similarRequestId) return; // stale
+      if (!items.length) {
+        similarSection.classList.add('hidden');
+        return;
+      }
+      fillGrid(similarGrid, items);
+    } catch (err) {
+      console.error('Similar load failed:', err);
+      similarSection.classList.add('hidden');
+    }
+  }
+
+  function hideSimilar() {
+    if (similarSection) similarSection.classList.add('hidden');
+    if (similarGrid) similarGrid.innerHTML = '';
+  }
+
+  /* ========================================================
+     PATCH loadPlayer to load similar titles
+     ======================================================== */
+  const _prevLoadPlayer = loadPlayer;
+  loadPlayer = function (type, id, season, episode, title) {
+    _prevLoadPlayer(type, id, season, episode, title);
+    loadSimilar(type, id);
+  };
+
+  /* ========================================================
+     ENRICH HOVER CARD — cast + collection
+     ======================================================== */
+  const hoverCardEl = document.getElementById('hover-card');
+  const v3LastHovered = { item: null, type: null };
+  let v3CastFetchKey = null;
+
+  // Patch makeCard to record last hovered
+  const _prevMakeCard = makeCard;
+  makeCard = function (item, typeOverride) {
+    const card = _prevMakeCard(item, typeOverride);
+    const type = typeOverride
+      || (item.media_type === 'tv' ? 'tv'
+        : item.media_type === 'movie' ? 'movie'
+        : (item.first_air_date ? 'tv' : 'movie'));
+    card.addEventListener('mouseenter', () => {
+      v3LastHovered.item = item;
+      v3LastHovered.type = type;
+    });
+    return card;
+  };
+
+  // Patch makeRandomCard similarly
+  const _prevMakeRandomCard = makeRandomCard;
+  makeRandomCard = function (item, typeOverride) {
+    const card = _prevMakeRandomCard(item, typeOverride);
+    const type = typeOverride || (item.first_air_date ? 'tv' : 'movie');
+    card.addEventListener('mouseenter', () => {
+      v3LastHovered.item = item;
+      v3LastHovered.type = type;
+    });
+    return card;
+  };
+
+  if (hoverCardEl) {
+    const observer = new MutationObserver(() => {
+      if (!v3LastHovered.item) return;
+      const body = hoverCardEl.querySelector('.hc-body');
+      if (!body || body.querySelector('.hc-cast')) return;
+
+      const { item, type } = v3LastHovered;
+      const key = `${type}:${item.id}`;
+      if (v3CastFetchKey === key) return;
+      v3CastFetchKey = key;
+
+      Promise.all([
+        v3Credits(type, item.id).catch(() => null),
+        v3Details(type, item.id).catch(() => null),
+      ]).then(([credits, details]) => {
+        v3CastFetchKey = null;
+        const body2 = hoverCardEl.querySelector('.hc-body');
+        if (!body2 || body2.querySelector('.hc-cast')) return;
+
+        // Cast row
+        const cast = (credits?.cast || []).slice(0, 5);
+        if (cast.length) {
+          const castRow = document.createElement('div');
+          castRow.className = 'hc-cast';
+          castRow.innerHTML = '<div class="hc-cast-title">Cast</div>' + cast.map(c => {
+            const img = c.profile_path
+              ? `<img src="https://image.tmdb.org/t/p/w92${c.profile_path}" alt="" />`
+              : `<div class="cast-fallback">${(c.name || '?').slice(0,1)}</div>`;
+            return `<div class="cast-chip" data-person="${c.id}">
+              ${img}<span>${c.name || ''}</span>
+            </div>`;
+          }).join('');
+          body2.appendChild(castRow);
+          castRow.querySelectorAll('.cast-chip').forEach(chip => {
+            chip.onclick = (e) => {
+              e.stopPropagation();
+              const pc = document.getElementById('hover-card');
+              if (pc) pc.classList.add('hidden');
+              openPersonView(Number(chip.dataset.person));
+            };
+          });
+        }
+
+        // Collection button
+        if (details?.belongs_to_collection) {
+          const actions = body2.querySelector('.hc-actions');
+          if (actions && !actions.querySelector('.hc-collection')) {
+            const btn = document.createElement('button');
+            btn.className = 'hc-collection';
+            btn.textContent = '🎬 Collection';
+            btn.onclick = (e) => {
+              e.stopPropagation();
+              if (hoverCardEl) hoverCardEl.classList.add('hidden');
+              openCollectionView(details.belongs_to_collection.id, details.belongs_to_collection.name);
+            };
+            actions.appendChild(btn);
+          }
+        }
+      });
+    });
+    observer.observe(hoverCardEl, { childList: true, subtree: true });
+  }
+
+  /* ========================================================
+     HEADER BUTTONS — Discover
+     ======================================================== */
+  (function injectDiscoverButton() {
+    const header = document.querySelector('header');
+    if (!header || document.getElementById('discoverBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'discoverBtn';
+    btn.className = 'discover-btn';
+    btn.title = 'Discover categories';
+    btn.innerHTML = '<span class="disc-icon">🧭</span> <span class="disc-label">Discover</span>';
+    btn.onclick = openDiscover;
+    header.appendChild(btn);
+  })();
+
+  /* ========================================================
+     Also add New Releases / Upcoming / Airing Today rows to HOME
+     ======================================================== */
+  async function injectDiscoverRows() {
+    const rowsEl = document.getElementById('rows');
+    if (!rowsEl) return;
+    // avoid duplicates
+    rowsEl.querySelectorAll('.row-discover').forEach(el => el.remove());
+
+    const defs = [
+      { title: '🎬 New Releases', path: '/movie/now_playing' },
+      { title: '📅 Coming Soon',  path: '/movie/upcoming' },
+      { title: '📺 Airing Today', path: '/tv/airing_today' },
+    ];
+
+    const insertAfter = rowsEl.querySelectorAll('.row')[3] || rowsEl.lastElementChild;
+    let anchor = insertAfter ? insertAfter.nextSibling : null;
+
+    for (const def of defs) {
+      try {
+        const data = await tmdb(def.path);
+        const items = (data.results || []).filter(x => x.poster_path).slice(0, 20);
+        if (!items.length) continue;
+        const row = makeRow(def.title, items);
+        row.classList.add('row-discover');
+        if (anchor) rowsEl.insertBefore(row, anchor);
+        else rowsEl.appendChild(row);
+        anchor = row.nextSibling;
+      } catch (err) {
+        console.error('discover row failed:', def.title, err);
+      }
+    }
+  }
+
+  // chain onto loadHome (which v2 already chains to inject personal rows)
+  const _prevLoadHome = loadHome;
+  loadHome = async function () {
+    await _prevLoadHome();
+    try { await injectDiscoverRows(); } catch (e) { console.error('discover rows failed', e); }
+  };
+
+  /* ========================================================
+     Make sure ALL view switching hides the new views
+     ======================================================== */
+  const _priorShowHomeV3 = window.showHome;
+  window.showHome = function () {
+    hideAllViews();
+    homeView.classList.remove('hidden');
+    iframe.src = 'about:blank';
+    document.title = "Zara's Movies";
+    hideSimilar();
+    setTimeout(() => { try { if (typeof window.refreshPersonalRows === 'function') window.refreshPersonalRows(); } catch {} }, 100);
+  };
+
+  const _priorShowRandomV3 = showRandom;
+  showRandom = function () {
+    hideAllViews();
+    randomView.classList.remove('hidden');
+    document.title = "Random Picks — Zara's Movies";
+    hideSimilar();
+  };
+
+  wireBackHandlers();
+
+  console.log('[ZS] Discovery v3 loaded — Discover hub, person pages, similar titles, collections');
+})();
+
+/* ============================================================
+   ZARA'S CUSTOM v4 — auto-next, auto-skip intro,
+                    remove "Airing Today" + "By Decade"
+   ============================================================ */
+(function () {
+  if (window.__zsCustomV4) return;
+  window.__zsCustomV4 = true;
+
+  /* ---------- 1. Auto-next + auto-skip intro on TV embeds ---------- */
+  const _prevBuildUrlV4 = buildUrl;
+  buildUrl = function (type, id, season, episode) {
+    const hex = document.documentElement.dataset.accentHex || 'ffb6d9';
+    if (type === 'movie') {
+      return `${ORIGIN}/embed/movie/${id}?back=close&color=%23${hex}`;
+    }
+    // autonext=true  → auto-plays next episode when current ends
+    // autoskip=true  → auto-skips intro/recap when detected
+    return `${ORIGIN}/embed/tv/${id}?s=${season}&e=${episode}&back=close&color=%23${hex}&autonext=true&autoskip=true`;
+  };
+
+  /* ---------- 2. Strip Airing Today + By Decade from Discover filters ---------- */
+  const discoverFiltersEl = document.getElementById('discoverFilters');
+  if (discoverFiltersEl) {
+    const stripFilters = () => {
+      discoverFiltersEl.querySelectorAll('.filter-pill').forEach(pill => {
+        const t = (pill.textContent || '').trim();
+        if (/Airing Today/i.test(t) || /By Decade/i.test(t)) {
+          pill.remove();
+        }
+      });
+    };
+    const filtersObs = new MutationObserver(stripFilters);
+    filtersObs.observe(discoverFiltersEl, { childList: true, subtree: true });
+    stripFilters();
+  }
+
+  /* ---------- 3. Strip the "Airing Today" row from home ---------- */
+  const rowsEl = document.getElementById('rows');
+  if (rowsEl) {
+    const stripHomeRows = () => {
+      rowsEl.querySelectorAll('.row').forEach(row => {
+        const t = row.querySelector('.row-title')?.textContent || '';
+        if (/Airing Today/i.test(t)) {
+          row.remove();
+        }
+      });
+    };
+    const rowsObs = new MutationObserver(stripHomeRows);
+    rowsObs.observe(rowsEl, { childList: true, subtree: true });
+    stripHomeRows();
+  }
+
+  /* ---------- 4. Also hide the "Airing Today" toggle if you ever add one ---------- */
+  document.querySelectorAll('.filter-pill, .toggle-btn, .row-title').forEach(el => {
+    const t = (el.textContent || '').trim();
+    if (/Airing Today|By Decade/i.test(t)) el.remove();
+  });
+
+  console.log('[ZS] v4 — auto-next + auto-skip enabled, "Airing Today" + "By Decade" removed');
+})();
+
+/* ============================================================
+   ZARA'S CUSTOM v5 — Settings page + Search autocomplete
+   ============================================================ */
+(function () {
+  if (window.__zsCustomV5) return;
+  window.__zsCustomV5 = true;
+
+  function lsGet(key, fb) {
+    try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : fb; } catch { return fb; }
+  }
+  function lsSet(key, v) {
+    try { localStorage.setItem(key, JSON.stringify(v)); } catch {}
+  }
+
+  /* ---------- ACCENTS (shared) ---------- */
+  const ACCENTS = {
+    pink:     { label: 'Pink',     base: '#ffb6d9', light: '#ffd1e6', deep: '#ff8fc7' },
+    lavender: { label: 'Lavender', base: '#c9b6ff', light: '#e0d1ff', deep: '#a88fff' },
+    mint:     { label: 'Mint',     base: '#a8e6cf', light: '#c9f0e0', deep: '#7fd4b5' },
+    sky:      { label: 'Sky',      base: '#a8d8ff', light: '#c9e5ff', deep: '#7fbcff' },
+    peach:    { label: 'Peach',    base: '#ffc9a8', light: '#ffddc9', deep: '#ffab7f' },
+    coral:    { label: 'Coral',    base: '#ffa8b8', light: '#ffc9d3', deep: '#ff7f95' },
+  };
+
+  function hexToRgba(hex, alpha) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function applyAccent(key) {
+    const a = ACCENTS[key] || ACCENTS.pink;
+    const root = document.documentElement;
+    root.style.setProperty('--accent', a.base);
+    root.style.setProperty('--accent-2', a.light);
+    root.style.setProperty('--accent-deep', a.deep);
+    root.style.setProperty('--accent-glow', hexToRgba(a.base, 0.25));
+    root.style.setProperty('--accent-glow-strong', hexToRgba(a.base, 0.45));
+    root.dataset.accentHex = a.base.replace('#', '');
+    lsSet('zs_accent', key);
+  }
+
+  /* Settings storage */
+  const SETTINGS_KEY = 'zs_settings';
+  function getSettings() {
+    return Object.assign({
+      autonext: true,
+      autoskip: true,
+      autoplay: true,
+    }, lsGet(SETTINGS_KEY, {}));
+  }
+  function saveSettings(s) { lsSet(SETTINGS_KEY, s); }
+
+  /* ---------- Remove old accent popover button from header if present ---------- */
+  const oldAccentBtn = document.getElementById('accentBtn');
+  if (oldAccentBtn) oldAccentBtn.remove();
+
+  /* ---------- Patch buildUrl to respect settings toggles ---------- */
+  const _prevBuildUrlV5 = buildUrl;
+  buildUrl = function (type, id, season, episode) {
+    const hex = document.documentElement.dataset.accentHex || 'ffb6d9';
+    const s = getSettings();
+
+    if (type === 'movie') {
+      const extra = s.autoplay ? '' : '&autoplay=false';
+      return `${ORIGIN}/embed/movie/${id}?back=close&color=%23${hex}${extra}`;
+    }
+
+    const params = new URLSearchParams();
+    params.set('s', season);
+    params.set('e', episode);
+    params.set('back', 'close');
+    params.set('color', '#' + hex);
+    params.set('autonext', s.autonext ? 'true' : 'false');
+    params.set('autoskip', s.autoskip ? 'true' : 'false');
+    if (!s.autoplay) params.set('autoplay', 'false');
+
+    return `${ORIGIN}/embed/tv/${id}?${params.toString()}`;
+  };
+
+  /* ---------- SETTINGS VIEW ---------- */
+  const settingsView   = document.getElementById('settings-view');
+  const settingsBack   = document.getElementById('settingsBack');
+  const accentGrid     = document.getElementById('accentGrid');
+  const setAutonext    = document.getElementById('setAutonext');
+  const setAutoskip    = document.getElementById('setAutoskip');
+  const setAutoplay    = document.getElementById('setAutoplay');
+  const clearProgress  = document.getElementById('clearProgress');
+  const clearWatchlist = document.getElementById('clearWatchlist');
+  const resetAll       = document.getElementById('resetAll');
+
+  function hideAllViewsForSettings() {
+    ['home-view','player-view','random-view','genre-view','top100-view','discover-view','person-view','collection-view']
+      .forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+      });
+  }
+
+  function buildAccentGrid() {
+    if (!accentGrid) return;
+    const current = lsGet('zs_accent', 'pink');
+    accentGrid.innerHTML = Object.entries(ACCENTS).map(([key, a]) => `
+      <div class="accent-item">
+        <div class="accent-swatch-lg${current === key ? ' active' : ''}"
+             data-key="${key}"
+             title="${a.label}"
+             style="background:${a.base}"></div>
+        <div class="accent-swatch-label">${a.label}</div>
+      </div>
+    `).join('');
+
+    accentGrid.querySelectorAll('.accent-swatch-lg').forEach(sw => {
+      sw.onclick = () => {
+        applyAccent(sw.dataset.key);
+        accentGrid.querySelectorAll('.accent-swatch-lg').forEach(s => s.classList.remove('active'));
+        sw.classList.add('active');
+      };
+    });
+  }
+
+  function loadSettingsUI() {
+    const s = getSettings();
+    if (setAutonext)    setAutonext.checked = s.autonext;
+    if (setAutoskip)    setAutoskip.checked = s.autoskip;
+    if (setAutoplay)    setAutoplay.checked = s.autoplay;
+    buildAccentGrid();
+  }
+
+  function openSettings() {
+    hideAllViewsForSettings();
+    settingsView.classList.remove('hidden');
+    document.title = "Settings — Zara's Movies";
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    loadSettingsUI();
+  }
+
+  if (settingsBack) {
+    settingsBack.onclick = () => {
+      settingsView.classList.add('hidden');
+      homeView.classList.remove('hidden');
+      document.title = "Zara's Movies";
+    };
+  }
+
+  // Toggle wiring
+  [setAutonext, setAutoskip, setAutoplay].forEach(el => {
+    if (!el) return;
+    el.addEventListener('change', () => {
+      const s = getSettings();
+      if (el === setAutonext) s.autonext = el.checked;
+      if (el === setAutoskip) s.autoskip = el.checked;
+      if (el === setAutoplay) s.autoplay = el.checked;
+      saveSettings(s);
+    });
+  });
+
+  if (clearProgress) {
+    clearProgress.onclick = () => {
+      localStorage.removeItem('zs_progress');
+      clearProgress.textContent = 'Cleared ✓';
+      setTimeout(() => { clearProgress.textContent = 'Clear'; }, 1600);
+      setTimeout(() => { try { if (typeof window.refreshPersonalRows === 'function') window.refreshPersonalRows(); } catch {} }, 100);
+    };
+  }
+  if (clearWatchlist) {
+    clearWatchlist.onclick = () => {
+      localStorage.removeItem('zs_favourites');
+      clearWatchlist.textContent = 'Cleared ✓';
+      setTimeout(() => { clearWatchlist.textContent = 'Clear'; }, 1600);
+      setTimeout(() => { try { if (typeof window.refreshPersonalRows === 'function') window.refreshPersonalRows(); } catch {} }, 100);
+    };
+  }
+  if (resetAll) {
+    resetAll.onclick = () => {
+      if (!confirm('Reset all settings and data?')) return;
+      ['zs_favourites','zs_progress','zs_accent','zs_settings'].forEach(k => localStorage.removeItem(k));
+      applyAccent('pink');
+      loadSettingsUI();
+      resetAll.textContent = 'Reset ✓';
+      setTimeout(() => { resetAll.textContent = 'Reset'; }, 1600);
+    };
+  }
+
+  /* ---------- Add settings button to header ---------- */
+  (function injectSettingsButton() {
+    const header = document.querySelector('header');
+    if (!header || document.getElementById('settingsBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'settingsBtn';
+    btn.className = 'settings-btn';
+    btn.title = 'Settings';
+    btn.innerHTML = '⚙️';
+    btn.onclick = openSettings;
+    header.appendChild(btn);
+  })();
+
+  /* ---------- Make sure showHome / other nav hides settings view ---------- */
+  const _priorShowHomeV5 = window.showHome;
+  window.showHome = function () {
+    settingsView.classList.add('hidden');
+    _priorShowHomeV5();
+  };
+
+  /* ---------- Ensure view toggling from other modules hides settings ---------- */
+  const _priorShowRandomV5 = showRandom;
+  showRandom = function () {
+    settingsView.classList.add('hidden');
+    _priorShowRandomV5();
+  };
+
+  /* ============================================================
+     SEARCH AUTOCOMPLETE
+     ============================================================ */
+  const searchInput   = document.getElementById('search');
+  const suggestionsEl = document.getElementById('searchSuggestions');
+
+  let suggestDebounce = null;
+  let suggestAbort = null;
+  let suggestItems = [];
+  let suggestIndex = -1;
+  let suggestCache = new Map();
+
+  function hideSuggestions() {
+    if (!suggestionsEl) return;
+    suggestionsEl.classList.add('hidden');
+    suggestionsEl.innerHTML = '';
+    suggestItems = [];
+    suggestIndex = -1;
+  }
+
+  function renderSuggestions(items, query) {
+    if (!suggestionsEl) return;
+    suggestItems = items;
+    suggestIndex = items.length ? 0 : -1;
+
+    if (!items.length) {
+      suggestionsEl.innerHTML = `<div class="suggest-empty">No matches for "${query}"</div>`;
+    } else {
+      suggestionsEl.innerHTML = items.map((it, i) => {
+        const title = it.title || it.name || 'Untitled';
+        const year = (it.release_date || it.first_air_date || '').slice(0, 4);
+        const type = it.media_type === 'tv' || it.first_air_date ? 'TV' : 'Movie';
+        const rating = it.vote_average ? it.vote_average.toFixed(1) : '';
+        const poster = it.poster_path
+          ? `https://image.tmdb.org/t/p/w92${it.poster_path}`
+          : '';
+        return `
+          <div class="suggest-item${i === 0 ? ' active' : ''}" data-idx="${i}">
+            <div class="suggest-poster">${poster ? `<img src="${poster}" alt="" />` : '🎬'}</div>
+            <div class="suggest-info">
+              <div class="suggest-title">${title}</div>
+              <div class="suggest-meta">
+                <span class="suggest-badge">${type}</span>
+                ${year ? `<span>${year}</span>` : ''}
+                ${rating ? `<span>★ ${rating}</span>` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    suggestionsEl.classList.remove('hidden');
+
+    suggestionsEl.querySelectorAll('.suggest-item').forEach(el => {
+      el.onmouseenter = () => setActive(Number(el.dataset.idx));
+      el.onclick = () => pickSuggestion(Number(el.dataset.idx));
+    });
+  }
+
+  function setActive(i) {
+    if (!suggestionsEl) return;
+    suggestIndex = i;
+    suggestionsEl.querySelectorAll('.suggest-item').forEach(el => {
+      el.classList.toggle('active', Number(el.dataset.idx) === i);
+    });
+    const active = suggestionsEl.querySelector('.suggest-item.active');
+    if (active) active.scrollIntoView({ block: 'nearest' });
+  }
+
+  function pickSuggestion(i) {
+    const item = suggestItems[i];
+    if (!item) return;
+    const type = item.media_type === 'tv' || item.first_air_date ? 'tv' : 'movie';
+    const title = item.title || item.name || 'Untitled';
+    hideSuggestions();
+    searchInput.blur();
+    searchInput.value = '';
+    loadPlayer(type, item.id, 1, 1, title);
+  }
+
+  async function fetchSuggestions(query) {
+    const q = query.trim();
+    if (q.length < 2) {
+      hideSuggestions();
+      return;
+    }
+
+    // Use cache
+    if (suggestCache.has(q)) {
+      renderSuggestions(suggestCache.get(q), q);
+      return;
+    }
+
+    if (suggestionsEl) {
+      suggestionsEl.innerHTML = '<div class="suggest-loading">Searching…</div>';
+      suggestionsEl.classList.remove('hidden');
+    }
+
+    if (suggestAbort) suggestAbort.abort();
+    suggestAbort = new AbortController();
+
+    try {
+      const url = `https://api.themoviedb.org/3/search/multi?api_key=${TMDB_KEY}&query=${encodeURIComponent(q)}`;
+      const res = await fetch(url, { signal: suggestAbort.signal });
+      if (!res.ok) throw new Error('TMDB ' + res.status);
+      const data = await res.json();
+      const items = (data.results || [])
+        .filter(r => (r.media_type === 'movie' || r.media_type === 'tv') && r.poster_path)
+        .slice(0, 8);
+      suggestCache.set(q, items);
+      renderSuggestions(items, q);
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      console.error('Autocomplete failed:', err);
+      if (suggestionsEl) {
+        suggestionsEl.innerHTML = '<div class="suggest-empty">Couldn\'t search right now</div>';
+      }
+    }
+  }
+
+  if (searchInput && suggestionsEl) {
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value;
+      clearTimeout(suggestDebounce);
+      if (!q.trim()) { hideSuggestions(); return; }
+      suggestDebounce = setTimeout(() => fetchSuggestions(q), 200);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (suggestionsEl.classList.contains('hidden')) return;
+      const count = suggestItems.length;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (count) setActive((suggestIndex + 1) % count);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (count) setActive((suggestIndex - 1 + count) % count);
+      } else if (e.key === 'Enter') {
+        if (suggestIndex >= 0 && suggestItems[suggestIndex]) {
+          e.preventDefault();
+          e.stopPropagation();
+          pickSuggestion(suggestIndex);
+        }
+      } else if (e.key === 'Escape') {
+        hideSuggestions();
+      }
+    }, true); // capture so it runs before other Enter handlers
+
+    searchInput.addEventListener('focus', () => {
+      if (searchInput.value.trim().length >= 2) {
+        fetchSuggestions(searchInput.value);
+      }
+    });
+
+    // Click outside closes
+    document.addEventListener('click', (e) => {
+      if (!suggestionsEl.contains(e.target) && e.target !== searchInput) {
+        hideSuggestions();
+      }
+    });
+
+    // Close on scroll of page
+    window.addEventListener('scroll', () => {
+      if (!suggestionsEl.classList.contains('hidden')) hideSuggestions();
+    }, { passive: true });
+  }
+
+  console.log('[ZS] v5 — Settings page + autocomplete ready');
+})();
+
+/* ============================================================
+   ZARA'S CUSTOM v6
+   — consolidated header, URL routing, PWA install
+   ============================================================ */
+(function () {
+  if (window.__zsCustomV6) return;
+  window.__zsCustomV6 = true;
+
+  /* ------------------------------------------------------------
+     1. CONSOLIDATED HEADER — Browse dropdown
+     ------------------------------------------------------------ */
+  function injectBrowseButton() {
+    const header = document.querySelector('header');
+    if (!header || document.getElementById('browseBtn')) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'browseBtn';
+    btn.className = 'browse-btn';
+    btn.setAttribute('aria-haspopup', 'true');
+    btn.setAttribute('aria-expanded', 'false');
+    btn.innerHTML = '<span class="bi-icon">🧭</span> <span class="browse-label">Browse</span> <span class="caret">▾</span>';
+    header.appendChild(btn);
+
+    const menu = document.createElement('div');
+    menu.id = 'browseMenu';
+    menu.className = 'browse-menu hidden';
+    menu.innerHTML = `
+      <div class="browse-item" data-action="discover">
+        <span class="bi-icon">🧭</span> Discover
+        <span class="bi-desc">Categories</span>
+      </div>
+      <div class="browse-item" data-action="top100">
+        <span class="bi-icon">🏆</span> Top 100
+        <span class="bi-desc">Highest rated</span>
+      </div>
+      <div class="browse-item" data-action="random">
+        <span class="bi-icon">🎲</span> Random
+        <span class="bi-desc">Surprise me</span>
+      </div>
+    `;
+    document.body.appendChild(menu);
+
+    function openMenu() {
+      const rect = btn.getBoundingClientRect();
+      menu.style.top  = (rect.bottom + 8) + 'px';
+      menu.style.left = Math.min(rect.left, window.innerWidth - 240) + 'px';
+      menu.classList.remove('hidden');
+      btn.setAttribute('aria-expanded', 'true');
+    }
+    function closeMenu() {
+      menu.classList.add('hidden');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      if (menu.classList.contains('hidden')) openMenu();
+      else closeMenu();
+    };
+
+    menu.querySelectorAll('.browse-item').forEach(item => {
+      item.onclick = () => {
+        closeMenu();
+        const action = item.dataset.action;
+        if (action === 'discover' && typeof openDiscover === 'function') openDiscover();
+        else if (action === 'top100' && typeof openTop100 === 'function') openTop100('movie');
+        else if (action === 'random' && typeof showRandom === 'function') {
+          showRandom();
+          if (typeof refreshRandomGrid === 'function') refreshRandomGrid();
+        }
+      };
+    });
+
+    document.addEventListener('click', closeMenu);
+    window.addEventListener('resize', closeMenu);
+    window.addEventListener('scroll', closeMenu, { passive: true });
+  }
+  injectBrowseButton();
+
+  /* ------------------------------------------------------------
+     2. URL ROUTING (hash-based, back button works)
+     ------------------------------------------------------------ */
+
+  // prevent routing loops
+  let suppressRoute = false;
+
+  function setHash(hash, { replace = false } = {}) {
+    suppressRoute = true;
+    const current = location.hash || '#/';
+    if (current !== hash) {
+      if (replace) history.replaceState(null, '', hash);
+      else history.pushState(null, '', hash);
+    }
+    // release the flag after the microtask so the popstate/hashchange fires and sees it
+    setTimeout(() => { suppressRoute = false; }, 0);
+  }
+
+  /* --- Patch navigation entrypoints --- */
+  const _prevLoadPlayerV6  = loadPlayer;
+  const _prevShowHomeV6    = window.showHome;
+  const _prevShowRandomV6  = showRandom;
+  const _prevOpenDiscover  = typeof openDiscover === 'function' ? openDiscover : null;
+  const _prevOpenTop100    = typeof openTop100 === 'function' ? openTop100 : null;
+  const _prevOpenGenre     = typeof openGenreView === 'function' ? openGenreView : null;
+  const _prevOpenPerson    = typeof openPersonView === 'function' ? openPersonView : null;
+  const _prevOpenColl      = typeof openCollectionView === 'function' ? openCollectionView : null;
+  const _prevOpenSettings  = typeof openSettings === 'function' ? openSettings : null;
+
+  loadPlayer = function (type, id, season, episode, title) {
+    _prevLoadPlayerV6(type, id, season, episode, title);
+    const q = new URLSearchParams();
+    if (type === 'tv') {
+      q.set('s', season || 1);
+      q.set('e', episode || 1);
+    }
+    if (title) q.set('t', title);
+    setHash(`#/watch/${type}/${id}${q.toString() ? '?' + q.toString() : ''}`);
+  };
+
+  window.showHome = function () {
+    _prevShowHomeV6();
+    setHash('#/');
+  };
+
+  showRandom = function () {
+    _prevShowRandomV6();
+    setHash('#/random');
+  };
+
+  if (_prevOpenDiscover) {
+    openDiscover = function () {
+      _prevOpenDiscover();
+      setHash('#/discover');
+    };
+  }
+
+  if (_prevOpenTop100) {
+    openTop100 = function (type) {
+      _prevOpenTop100(type);
+      setHash(`#/top100${type && type !== 'movie' ? '?type=' + type : ''}`);
+    };
+  }
+
+  if (_prevOpenGenre) {
+    openGenreView = function (id, name) {
+      _prevOpenGenre(id, name);
+      const q = name ? `?name=${encodeURIComponent(name)}` : '';
+      setHash(`#/genre/${id}${q}`);
+    };
+  }
+
+  if (_prevOpenPerson) {
+    openPersonView = function (id) {
+      _prevOpenPerson(id);
+      setHash(`#/person/${id}`);
+    };
+  }
+
+  if (_prevOpenColl) {
+    openCollectionView = function (id, name) {
+      _prevOpenColl(id, name);
+      const q = name ? `?name=${encodeURIComponent(name)}` : '';
+      setHash(`#/collection/${id}${q}`);
+    };
+  }
+
+  if (_prevOpenSettings) {
+    openSettings = function () {
+      _prevOpenSettings();
+      setHash('#/settings');
+    };
+  }
+
+  /* --- Router --- */
+  async function routeFromHash() {
+    if (suppressRoute) return;
+    const raw = location.hash.replace(/^#/, '') || '/';
+    const [pathPart, queryPart] = raw.split('?');
+    const q = new URLSearchParams(queryPart || '');
+    const segments = pathPart.split('/').filter(Boolean);
+
+    try {
+      if (segments.length === 0) {
+        window.showHome();
+        return;
+      }
+
+      const [top, a, b] = segments;
+
+      if (top === 'watch' && a && b) {
+        const type = a;
+        const id = Number(b);
+        const s = Number(q.get('s') || 1);
+        const e = Number(q.get('e') || 1);
+        const title = q.get('t') || '';
+        _prevLoadPlayerV6(type, id, s, e, title);
+        // also load similar + tv picker (the v6 wrapper did the URL push; here we
+        // bypass loadPlayer so we don't push again)
+        if (typeof window.__zsPostLoad === 'function') window.__zsPostLoad(type, id, s, e, title);
+        return;
+      }
+
+      if (top === 'random')   { _prevShowRandomV6(); if (typeof refreshRandomGrid === 'function') refreshRandomGrid(); return; }
+      if (top === 'discover') { if (_prevOpenDiscover) _prevOpenDiscover(); return; }
+      if (top === 'top100')   { const t = q.get('type') || 'movie'; if (_prevOpenTop100) _prevOpenTop100(t); return; }
+      if (top === 'settings') { if (_prevOpenSettings) _prevOpenSettings(); return; }
+      if (top === 'genre' && a)      { if (_prevOpenGenre) _prevOpenGenre(Number(a), q.get('name') || ''); return; }
+      if (top === 'person' && a)     { if (_prevOpenPerson) _prevOpenPerson(Number(a)); return; }
+      if (top === 'collection' && a) { if (_prevOpenColl) _prevOpenColl(Number(a), q.get('name') || ''); return; }
+
+      // unknown
+      window.showHome();
+    } catch (err) {
+      console.error('Route failed:', err);
+      window.showHome();
+    }
+  }
+
+  /* expose post-load helper so the router can trigger similar + TV picker without re-pushing hash */
+  window.__zsPostLoad = function (type, id, s, e, title) {
+    try {
+      if (type === 'tv' && typeof renderTVPicker === 'function') renderTVPicker(id, s || 1, e || 1);
+      else if (typeof hideTVPicker === 'function') hideTVPicker();
+      if (typeof loadSimilar === 'function') loadSimilar(type, id);
+    } catch (err) { console.warn('post-load failed', err); }
+    try { currentPlaying = { type, id, season: s || 1, episode: e || 1, title }; } catch {}
+  };
+
+  window.addEventListener('hashchange', routeFromHash);
+  window.addEventListener('popstate', routeFromHash);
+
+  /* Re-wire v3's back buttons (they bypass showHome and therefore the router) */
+  const pairBacks = [
+    ['genreBack'],
+    ['top100Back'],
+    ['discoverBack'],
+    ['personBack'],
+    ['collectionBack'],
+    ['settingsBack'],
+  ];
+  pairBacks.forEach(([id]) => {
+    const el = document.getElementById(id);
+    if (el) el.onclick = () => window.showHome();
+  });
+
+  /* Run the initial route once everything is loaded */
+  setTimeout(routeFromHash, 250);
+
+  /* ------------------------------------------------------------
+     3. PWA — register service worker + install prompt
+     ------------------------------------------------------------ */
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js', { scope: './' })
+        .then((reg) => console.log('[PWA] SW registered:', reg.scope))
+        .catch((err) => console.warn('[PWA] SW failed:', err));
+    });
+  }
+
+  /* Tiny toast helper (also used by settings later) */
+  window.zsToast = function (msg) {
+    const el = document.createElement('div');
+    el.className = 'zs-toast';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+    setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 300);
+    }, 2200);
+  };
+
+  /* Save settings via toast feedback (the raw localStorage writes in v5 stay the same) */
+  const origSave = window.saveSettings;
+  // no-op if not exposed
+
+  console.log('[ZS] v6 — Browse menu + routing + PWA ready');
+  console.log('[ZS] Tip: bookmark #/watch/tv/1396?s=1&e=1 and refresh to jump straight into an episode.');
+})();
+
+
+/* ============================================================
+   ZARA'S CUSTOM v9 — Polish pack
+   - 13 Next episode button
+   - 14 Resume prompt
+   - 15 Rotating hero
+   - 17 Accent-tinted hero (CSS only, already applied)
+   - 19 Toasts everywhere
+   - 20 Search history dropdown
+   - 22 Error boundary UI
+   - 24 TMDB request queue
+   - 33 Console audit
+   ============================================================ */
+(function () {
+  if (window.__zsCustomV9) return;
+  window.__zsCustomV9 = true;
+
+  /* ------------------------------------------------------------
+     33. Console cleanup — silence old [ZS] logs
+     ------------------------------------------------------------ */
+  const _origLog = console.log.bind(console);
+  console.log = function (...args) {
+    if (args[0] && typeof args[0] === 'string' && args[0].startsWith('[ZS]')) return;
+    return _origLog(...args);
+  };
+
+  /* ------------------------------------------------------------
+     24. TMDB global request queue
+     ------------------------------------------------------------ */
+  const TMDB_MAX_CONCURRENT = 3;
+  const TMDB_MIN_GAP = 250;   // 4 req/sec — safely under TMDB's 40/10s cap
+  const tmdbQueue = [];
+  let tmdbActive = 0;
+  let tmdbLastStart = 0;
+
+  function friendlyTmdbError(status) {
+    if (status === 401) return 'TMDB rejected the API key';
+    if (status === 404) return 'Not found on TMDB';
+    if (status === 429) return 'Rate limited — slow down a moment';
+    if (status >= 500) return 'TMDB is having trouble right now';
+    return `TMDB error (${status})`;
+  }
+
+  async function tmdbPump() {
+    if (tmdbActive >= TMDB_MAX_CONCURRENT) return;
+    if (!tmdbQueue.length) return;
+
+    const wait = Math.max(0, TMDB_MIN_GAP - (Date.now() - tmdbLastStart));
+    if (wait > 0) { setTimeout(tmdbPump, wait); return; }
+
+    const job = tmdbQueue.shift();
+    tmdbActive++;
+    tmdbLastStart = Date.now();
+
+    try {
+      const sep = job.path.includes('?') ? '&' : '?';
+      const url = `https://api.themoviedb.org/3${job.path}${sep}api_key=${TMDB_KEY}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const err = new Error(friendlyTmdbError(res.status));
+        err.status = res.status;
+        throw err;
+      }
+      job.resolve(await res.json());
+    } catch (e) {
+      job.reject(e);
+    } finally {
+      tmdbActive--;
+      tmdbPump();
+    }
+  }
+
+  // Replace global tmdb
+  tmdb = function (path) {
+    return new Promise((resolve, reject) => {
+      tmdbQueue.push({ path, resolve, reject });
+      tmdbPump();
+    });
+  };
+
+  /* ------------------------------------------------------------
+     Small helpers
+     ------------------------------------------------------------ */
+  function closestEl(el, sel) {
+    while (el && el.nodeType === 1) {
+      if (el.matches && el.matches(sel)) return el;
+      el = el.parentNode;
+    }
+    return null;
+  }
+
+  function formatTime(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function getProgressFor(type, id, season, episode) {
+    try {
+      const store = JSON.parse(localStorage.getItem('zs_progress') || '{}');
+      const key = (type === 'tv' && season && episode)
+        ? `tv:${id}:${season}:${episode}`
+        : `${type}:${id}`;
+      return store[key] || null;
+    } catch { return null; }
+  }
+
+  /* ------------------------------------------------------------
+     19. Toasts — favourite toggle
+     ------------------------------------------------------------ */
+  document.addEventListener('click', (e) => {
+    const favBtn = closestEl(e.target, '.fav-btn');
+    if (!favBtn) return;
+    setTimeout(() => {
+      const nowActive = favBtn.classList.contains('active');
+      if (typeof window.zsToast === 'function') {
+        window.zsToast(nowActive ? '♥ Added to Watchlist' : 'Removed from Watchlist');
+      }
+    }, 0);
+  }, true);
+
+  /* Toasts — data-clearing buttons */
+  const clearButtons = [
+    ['clearProgress',  'Progress cleared'],
+    ['clearWatchlist', 'Watchlist cleared'],
+    ['resetAll',       'Everything reset'],
+  ];
+  clearButtons.forEach(([id, msg]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', () => {
+      setTimeout(() => {
+        if (typeof window.zsToast === 'function') window.zsToast(msg);
+      }, 60);
+    });
+  });
+
+  /* Toasts — settings toggles */
+  ['setAutonext', 'setAutoskip', 'setAutoplay'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', () => {
+      if (typeof window.zsToast === 'function') {
+        window.zsToast(el.checked ? 'Setting enabled' : 'Setting disabled');
+      }
+    });
+  });
+
+  /* Toasts — accent swatches */
+  document.addEventListener('click', (e) => {
+    const sw = closestEl(e.target, '.accent-swatch-lg');
+    if (!sw) return;
+    const label = (sw.title || sw.dataset.key || '').toString();
+    const pretty = label.charAt(0).toUpperCase() + label.slice(1);
+    if (typeof window.zsToast === 'function' && label) {
+      window.zsToast('Accent: ' + pretty);
+    }
+  }, true);
+
+  /* ------------------------------------------------------------
+     13. Next Episode button
+     ------------------------------------------------------------ */
+  function ensureNextEpisodeButton() {
+    let btn = document.getElementById('nextEpisodeBtn');
+    if (btn) return btn;
+    const playerWrap = document.getElementById('player-wrap');
+    if (!playerWrap || !playerWrap.parentNode) return null;
+    btn = document.createElement('button');
+    btn.id = 'nextEpisodeBtn';
+    btn.className = 'next-episode-btn hidden';
+    btn.innerHTML = 'Next Episode →';
+    playerWrap.parentNode.insertBefore(btn, playerWrap.nextSibling);
+    return btn;
+  }
+
+  const nextEpisodeBtn = ensureNextEpisodeButton();
+
+  if (nextEpisodeBtn) {
+    nextEpisodeBtn.onclick = () => {
+      const cp = window.currentPlaying;
+      if (!cp || cp.type !== 'tv') return;
+      const nextEp = (cp.episode || 1) + 1;
+      if (typeof window.zsToast === 'function') {
+        window.zsToast(`Loading S${cp.season} E${nextEp}…`);
+      }
+      loadPlayer('tv', cp.id, cp.season || 1, nextEp, cp.title || '');
+    };
+  }
+
+  /* Track currentPlaying globally */
+  window.currentPlaying = null;
+
+  /* Update on auto-next events from the player */
+  window.addEventListener('message', (event) => {
+    if (event.origin !== ORIGIN) return;
+    const d = event.data;
+    if (d && d.type === 'cinesrc:nextepisode' && window.currentPlaying) {
+      if (d.season != null && d.episode != null) {
+        window.currentPlaying.season = d.season;
+        window.currentPlaying.episode = d.episode;
+      }
+    }
+  });
+
+  /* ------------------------------------------------------------
+     14. Resume prompt — auto-seek URL + our own overlay
+     ------------------------------------------------------------ */
+  const _prevBuildUrlV9 = buildUrl;
+  buildUrl = function (type, id, season, episode) {
+    let url = _prevBuildUrlV9(type, id, season, episode);
+    const prog = getProgressFor(type, id, season, episode);
+    if (prog && prog.time > 30 && prog.duration && (prog.time / prog.duration) < 0.95) {
+      const sep = url.includes('?') ? '&' : '?';
+      url += `${sep}t=${Math.floor(prog.time)}&continueprompt=false`;
+    }
+    return url;
+  };
+
+  function seekWhenReady(time) {
+    let handled = false;
+    const fire = () => { if (handled) return; handled = true; try { sendCommand('seek', [time]); } catch {} };
+    const handler = (event) => {
+      if (event.origin !== ORIGIN) return;
+      if (event.data && event.data.type === 'cinesrc:ready') {
+        window.removeEventListener('message', handler);
+        setTimeout(fire, 80);
+      }
+    };
+    window.addEventListener('message', handler);
+    setTimeout(() => { window.removeEventListener('message', handler); fire(); }, 6000);
+  }
+
+  function showResumePrompt(prog, onResume, onRestart) {
+    const existing = document.getElementById('resumeOverlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'resumeOverlay';
+    overlay.className = 'resume-overlay';
+
+    const backdrop = prog.poster_path
+      ? `https://image.tmdb.org/t/p/w500${prog.poster_path}`
+      : (prog.backdrop_path ? `https://image.tmdb.org/t/p/w780${prog.backdrop_path}` : '');
+
+    overlay.innerHTML = `
+      <div class="resume-card">
+        ${backdrop ? `<div class="resume-bg" style="background-image:url('${backdrop}')"></div>` : ''}
+        <div class="resume-body">
+          <div class="resume-eyebrow">Continue watching</div>
+          <h3 class="resume-title">${prog.title || 'Resume?'}</h3>
+          <p class="resume-desc">You stopped at <strong>${formatTime(prog.time)}</strong></p>
+          <div class="resume-actions">
+            <button class="resume-btn resume-btn-primary" id="resumeYes">▶ Resume</button>
+            <button class="resume-btn resume-btn-ghost" id="resumeNo">Start over</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.querySelector('#resumeYes').onclick = () => { try { onResume(); } catch {} close(); };
+    overlay.querySelector('#resumeNo').onclick  = () => { try { onRestart(); } catch {} close(); };
+    overlay.onclick = (e) => { if (e.target === overlay) { try { onResume(); } catch {} close(); } };
+  }
+
+  function maybeShowResumePrompt(type, id, season, episode) {
+    const prog = getProgressFor(type, id, season, episode);
+    if (!prog || prog.time < 30 || !prog.duration) return;
+    if (prog.time / prog.duration > 0.95) return;
+
+    setTimeout(() => {
+      showResumePrompt(prog,
+        () => { /* already seeks via t= parameter */ },
+        () => { seekWhenReady(0); }
+      );
+    }, 400);
+  }
+
+  /* loadPlayer wrapper: track, show next button, show resume prompt */
+  const _prevLoadPlayerV9 = loadPlayer;
+  loadPlayer = function (type, id, season, episode, title) {
+    window.currentPlaying = {
+      type, id,
+      season: season || 1,
+      episode: episode || 1,
+      title: title || '',
+    };
+    _prevLoadPlayerV9(type, id, season, episode, title);
+
+    if (nextEpisodeBtn) {
+      if (type === 'tv') nextEpisodeBtn.classList.remove('hidden');
+      else nextEpisodeBtn.classList.add('hidden');
+    }
+
+    maybeShowResumePrompt(type, id, season, episode);
+  };
+
+  /* Router path also needs the hooks — patch __zsPostLoad from v6 */
+  const _prevPostLoad = window.__zsPostLoad;
+  window.__zsPostLoad = function (type, id, s, e, title) {
+    if (typeof _prevPostLoad === 'function') _prevPostLoad(type, id, s, e, title);
+    window.currentPlaying = { type, id, season: s || 1, episode: e || 1, title: title || '' };
+    if (nextEpisodeBtn) {
+      if (type === 'tv') nextEpisodeBtn.classList.remove('hidden');
+      else nextEpisodeBtn.classList.add('hidden');
+    }
+    maybeShowResumePrompt(type, id, s, e);
+  };
+
+  /* ------------------------------------------------------------
+     15. Rotating hero carousel
+     ------------------------------------------------------------ */
+  let heroState = { items: [], index: 0, timer: null };
+
+  function buildHeroCarousel(items) {
+    const heroEl = document.getElementById('hero');
+    if (!heroEl || !items.length) return;
+
+    heroState.items = items;
+    heroState.index = 0;
+    clearInterval(heroState.timer);
+
+    function renderItem(idx) {
+      const item = items[idx];
+      const title = item.title || item.name || 'Featured';
+      const date = (item.release_date || item.first_air_date || '').slice(0, 4);
+      const type = item.media_type === 'tv' || item.first_air_date ? 'tv' : 'movie';
+      const backdrop = item.backdrop_path
+        ? `https://image.tmdb.org/t/p/original${item.backdrop_path}`
+        : '';
+
+      heroEl.style.setProperty('--hero-img', backdrop ? `url("${backdrop}")` : 'none');
+
+      heroEl.innerHTML = `
+        <div class="hero-content">
+          <div class="hero-badge">✦ Featured ${type === 'tv' ? 'Series' : 'Film'}</div>
+          <h1 class="hero-title">${title}</h1>
+          <div class="hero-meta">
+            ${date ? `<span>${date}</span><span class="dot"></span>` : ''}
+            <span>★ ${(item.vote_average || 0).toFixed(1)}</span>
+            <span class="dot"></span>
+            <span>${type === 'tv' ? 'TV Show' : 'Movie'}</span>
+          </div>
+          <p class="hero-overview">${item.overview || 'No description available.'}</p>
+          <div class="hero-actions">
+            <button class="btn-primary" id="heroPlay">▶ Play Now</button>
+            <button class="btn-ghost" id="heroInfo">More Info</button>
+          </div>
+          <div class="hero-dots">
+            ${items.map((_, i) => `<span class="hero-dot${i === idx ? ' active' : ''}" data-idx="${i}"></span>`).join('')}
+          </div>
+        </div>
+      `;
+
+      document.getElementById('heroPlay').onclick = () => loadPlayer(type, item.id, 1, 1, title);
+      document.getElementById('heroInfo').onclick = () => loadPlayer(type, item.id, 1, 1, title);
+
+      heroEl.querySelectorAll('.hero-dot').forEach(dot => {
+        dot.onclick = (e) => {
+          e.stopPropagation();
+          const i = Number(dot.dataset.idx);
+          heroState.index = i;
+          renderItem(i);
+          resetTimer();
+        };
+      });
+    }
+
+    function advance() {
+      heroState.index = (heroState.index + 1) % items.length;
+      renderItem(heroState.index);
+    }
+
+    function resetTimer() {
+      clearInterval(heroState.timer);
+      if (items.length > 1) {
+        heroState.timer = setInterval(advance, 8000);
+      }
+    }
+
+    renderItem(0);
+    resetTimer();
+  }
+
+  /* Wrap loadHome to build the carousel after it finishes */
+  const _prevLoadHomeV9 = loadHome;
+  loadHome = async function () {
+    try {
+      await _prevLoadHomeV9();
+      try {
+        const trending = await tmdb('/trending/all/week');
+        const top5 = (trending.results || [])
+          .filter(r => r.backdrop_path && r.overview)
+          .slice(0, 5);
+        if (top5.length) buildHeroCarousel(top5);
+      } catch (e) { /* keep single-item hero */ }
+    } catch (err) {
+      const rowsEl = document.getElementById('rows');
+      if (rowsEl) {
+        rowsEl.innerHTML = '';
+        const panel = document.createElement('div');
+        panel.className = 'error-panel';
+        panel.innerHTML = `
+          <div class="error-icon">⚠️</div>
+          <h3 class="error-title">Couldn't load the home page</h3>
+          <p class="error-desc">${err.message || 'Something went wrong.'}</p>
+          <button class="error-retry" id="homeRetry">↻ Try again</button>
+        `;
+        rowsEl.appendChild(panel);
+        const btn = panel.querySelector('#homeRetry');
+        if (btn) btn.onclick = () => loadHome();
+      }
+    }
+  };
+
+  /* ------------------------------------------------------------
+     22. Error boundary — upgrade ugly error rows
+     ------------------------------------------------------------ */
+  const rowsElForErrors = document.getElementById('rows');
+  if (rowsElForErrors) {
+    const errorObserver = new MutationObserver(() => {
+      rowsElForErrors.querySelectorAll('.row').forEach(row => {
+        const heading = row.querySelector('.row-title');
+        if (!heading) return;
+        if (/^Error$/i.test((heading.textContent || '').trim())) {
+          const msg = (row.textContent || '').replace(/Error/i, '').trim() || 'Something went wrong';
+          const panel = document.createElement('div');
+          panel.className = 'error-panel';
+          panel.innerHTML = `
+            <div class="error-icon">⚠️</div>
+            <h3 class="error-title">Something went wrong</h3>
+            <p class="error-desc">${msg}</p>
+            <button class="error-retry" id="rowRetry">↻ Try again</button>
+          `;
+          const btn = panel.querySelector('#rowRetry');
+          if (btn) btn.onclick = () => loadHome();
+          row.replaceWith(panel);
+        }
+      });
+    });
+    errorObserver.observe(rowsElForErrors, { childList: true, subtree: false });
+  }
+
+  /* ------------------------------------------------------------
+     20. Search history dropdown
+     ------------------------------------------------------------ */
+  const SH_KEY = 'zs_search_history';
+  const SH_MAX = 5;
+  const searchInputEl = document.getElementById('search');
+  let searchHistoryEl = null;
+
+  function getSearchHistory() {
+    try { return JSON.parse(localStorage.getItem(SH_KEY) || '[]'); }
+    catch { return []; }
+  }
+  function setSearchHistory(arr) {
+    try { localStorage.setItem(SH_KEY, JSON.stringify(arr.slice(0, SH_MAX))); } catch {}
+  }
+  function addSearchHistory(q) {
+    q = (q || '').trim();
+    if (!q) return;
+    let h = getSearchHistory().filter(x => x.toLowerCase() !== q.toLowerCase());
+    h.unshift(q);
+    setSearchHistory(h);
+  }
+
+  function ensureSearchHistoryEl() {
+    if (searchHistoryEl) return searchHistoryEl;
+    const searchRow = document.querySelector('.search-row');
+    if (!searchRow) return null;
+    searchHistoryEl = document.createElement('div');
+    searchHistoryEl.className = 'search-history hidden';
+    searchHistoryEl.id = 'searchHistory';
+    searchRow.appendChild(searchHistoryEl);
+    return searchHistoryEl;
+  }
+
+  function renderSearchHistory() {
+    const el = ensureSearchHistoryEl();
+    if (!el) return;
+    const h = getSearchHistory();
+    if (!h.length) { el.classList.add('hidden'); return; }
+    el.innerHTML = `
+      <div class="sh-header">
+        <span>Recent searches</span>
+        <button class="sh-clear" id="shClear">Clear</button>
+      </div>
+      ${h.map(q => `<div class="sh-item" data-q="${q.replace(/"/g, '&quot;')}">🔎 ${q}</div>`).join('')}
+    `;
+    el.classList.remove('hidden');
+
+    el.querySelector('#shClear').onclick = (e) => {
+      e.stopPropagation();
+      setSearchHistory([]);
+      el.classList.add('hidden');
+    };
+    el.querySelectorAll('.sh-item').forEach(item => {
+      item.onclick = () => {
+        const q = item.dataset.q;
+        if (searchInputEl) searchInputEl.value = q;
+        el.classList.add('hidden');
+        const sug = document.getElementById('searchSuggestions');
+        if (sug) sug.classList.add('hidden');
+        if (typeof runSearch === 'function') runSearch();
+      };
+    });
+  }
+
+  if (searchInputEl) {
+    searchInputEl.addEventListener('focus', () => {
+      if (!searchInputEl.value.trim()) renderSearchHistory();
+    });
+    searchInputEl.addEventListener('input', () => {
+      const el = ensureSearchHistoryEl();
+      if (el) el.classList.add('hidden');
+    });
+    document.addEventListener('click', (e) => {
+      const el = ensureSearchHistoryEl();
+      if (!el) return;
+      if (!el.contains(e.target) && e.target !== searchInputEl) {
+        el.classList.add('hidden');
+      }
+    });
+  }
+
+  /* Record searches */
+  const _prevRunSearchV9 = typeof runSearch === 'function' ? runSearch : null;
+  if (_prevRunSearchV9) {
+    runSearch = async function () {
+      if (searchInputEl) addSearchHistory(searchInputEl.value);
+      return _prevRunSearchV9();
+    };
+  }
+
+  console.log('[ZS] v9 — polish pack loaded');
+})();
+
+
+/* ============================================================
+   ZARA'S CUSTOM v11 — hearts fixed (no observers, no loops)
+   ============================================================ */
+(function () {
+  if (window.__zsCustomV11) return;
+  window.__zsCustomV11 = true;
+
+  const LS_FAV = 'zs_favourites';
+
+  function readFavs() {
+    try { return JSON.parse(localStorage.getItem(LS_FAV) || '[]'); } catch { return []; }
+  }
+  function writeFavs(arr) {
+    try { localStorage.setItem(LS_FAV, JSON.stringify(arr)); } catch {}
+  }
+
+  // Delegated click — but only intercept clicks that ACTUALLY hit a heart.
+  // Uses bubble phase so it doesn't block anything else. stopPropagation only
+  // fires when we've confirmed we're inside a heart.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest ? e.target.closest('.fav-btn') : null;
+    if (!btn) return;
+
+    // Only handle if we know which item this heart belongs to
+    const id = Number(btn.dataset.favId);
+    const type = btn.dataset.favType;
+    if (!id || !type) return;
+
+    e.stopPropagation();
+    e.preventDefault();
+
+    const favs = readFavs();
+    const idx = favs.findIndex(f => f.type === type && f.id === id);
+    let added;
+    if (idx >= 0) {
+      favs.splice(idx, 1);
+      added = false;
+    } else {
+      favs.unshift({
+        id,
+        type,
+        title: btn.dataset.favTitle || 'Untitled',
+        poster_path: btn.dataset.favPoster || null,
+        year: btn.dataset.favYear || '',
+        addedAt: Date.now(),
+      });
+      added = true;
+    }
+    writeFavs(favs);
+
+    btn.classList.toggle('active', added);
+    btn.innerHTML = added ? '♥' : '♡';
+
+    if (typeof window.zsToast === 'function') {
+      window.zsToast(added ? '♥ Added to Watchlist' : 'Removed from Watchlist');
+    }
+    if (typeof window.refreshPersonalRows === 'function') {
+      try { window.refreshPersonalRows(); } catch {}
+    }
+  });
+
+  // Stamp every existing heart on the page (once)
+  function stampExisting() {
+    // We can't recover item from button alone, so we look up the card's stored id
+    document.querySelectorAll('.card').forEach(card => {
+      const btn = card.querySelector('.fav-btn');
+      if (!btn || btn.dataset.favId) return;
+      const id = card.__zsItemId;
+      if (!id) return;
+      const meta = card.querySelector('.card-meta')?.textContent || '';
+      const type = /TV/.test(meta) ? 'tv' : 'movie';
+      const title = card.querySelector('.card-title')?.textContent || 'Untitled';
+      const img = card.querySelector('img');
+      const poster = img ? img.src.replace(/^.*\/t\/p\/(w\d+|original)/, '') : '';
+      btn.dataset.favId = String(id);
+      btn.dataset.favType = type;
+      btn.dataset.favTitle = title;
+      btn.dataset.favPoster = poster;
+    });
+  }
+
+  // Run once now, and once after home finishes loading
+  setTimeout(stampExisting, 500);
+  setTimeout(stampExisting, 1500);
+
+  console.log('[ZS] v11 loaded');
+})();
+
+/* ============================================================
+   ZARA'S CUSTOM v12 — clean player view + reliable TV picker
+   ============================================================ */
+(function () {
+  if (window.__zsCustomV12) return;
+  window.__zsCustomV12 = true;
+
+  /* ---------- Remove any legacy TV picker from v2 ---------- */
+  const legacy = document.getElementById('tv-picker');
+  if (legacy) legacy.remove();
+
+  /* ---------- Create the new TV picker container ---------- */
+  function ensureTvPickerRoot() {
+    let root = document.getElementById('tvPickerRoot');
+    if (root) return root;
+
+    const playerWrap = document.getElementById('player-wrap');
+    if (!playerWrap || !playerWrap.parentNode) return null;
+
+    root = document.createElement('div');
+    root.id = 'tvPickerRoot';
+    root.className = 'hidden';
+
+    // Insert right after the player-wrap (which is after the "Next Episode" button)
+    playerWrap.parentNode.insertBefore(root, playerWrap.nextSibling);
+    return root;
+  }
+
+  function hideTvPicker() {
+    const root = document.getElementById('tvPickerRoot');
+    if (root) {
+      root.classList.add('hidden');
+      root.innerHTML = '';
+    }
+  }
+
+  /* ---------- Caches ---------- */
+  const tvInfoCache = new Map();    // tvId -> full details
+  const seasonCache = new Map();    // tvId:season -> season data
+
+  async function getTvInfo(tvId) {
+    if (tvInfoCache.has(tvId)) return tvInfoCache.get(tvId);
+    const data = await tmdb(`/tv/${tvId}`);
+    tvInfoCache.set(tvId, data);
+    return data;
+  }
+
+  async function getSeason(tvId, seasonNum) {
+    const key = `${tvId}:${seasonNum}`;
+    if (seasonCache.has(key)) return seasonCache.get(key);
+    const data = await tmdb(`/tv/${tvId}/season/${seasonNum}`);
+    seasonCache.set(key, data);
+    return data;
+  }
+
+  /* ---------- Render ---------- */
+  let currentTvState = { id: null, season: 1, episode: 1 };
+
+  async function renderTvPicker(tvId, season, episode) {
+    currentTvState = { id: tvId, season, episode };
+
+    const root = ensureTvPickerRoot();
+    if (!root) return;
+    root.classList.remove('hidden');
+    root.innerHTML = '<div class="tv-picker-card"><div class="tv-picker-loading">Loading episodes…</div></div>';
+
+    try {
+      const info = await getTvInfo(tvId);
+      const seasons = (info.seasons || []).filter(s => s.season_number > 0 && s.episode_count > 0);
+
+      if (!seasons.length) {
+        root.innerHTML = '<div class="tv-picker-card"><div class="tv-picker-empty">No episodes available.</div></div>';
+        return;
+      }
+
+      // Snap to a valid season
+      if (!seasons.some(s => s.season_number === season)) {
+        season = seasons[0].season_number;
+        currentTvState.season = season;
+      }
+
+      const seasonData = await getSeason(tvId, season);
+      const episodes = seasonData.episodes || [];
+
+      root.innerHTML = `
+        <div class="tv-picker-card">
+          <div class="tv-picker-head">
+            <h3>
+              <span class="show-name">${info.name || 'Episodes'}</span>
+              <span class="season-label">· S${season}</span>
+            </h3>
+            <select id="tvSeasonSelect" aria-label="Select season">
+              ${seasons.map(s => `
+                <option value="${s.season_number}" ${s.season_number === season ? 'selected' : ''}>
+                  ${s.name || `Season ${s.season_number}`} · ${s.episode_count} eps
+                </option>
+              `).join('')}
+            </select>
+          </div>
+          <div class="episode-strip" id="tvEpisodeStrip">
+            ${episodes.length ? episodes.map(ep => {
+              const still = ep.still_path
+                ? `<img src="https://image.tmdb.org/t/p/w300${ep.still_path}" alt="" loading="lazy" />`
+                : '';
+              const meta = [
+                ep.air_date || '',
+                ep.runtime ? `${ep.runtime} min` : '',
+              ].filter(Boolean).join(' · ');
+              return `
+                <div class="ep-card${ep.episode_number === episode ? ' active' : ''}"
+                     data-ep="${ep.episode_number}">
+                  <div class="ep-thumb">
+                    ${still}
+                    <span class="ep-num">E${ep.episode_number}</span>
+                  </div>
+                  <div class="ep-body">
+                    <div class="ep-title">${ep.name || `Episode ${ep.episode_number}`}</div>
+                    <div class="ep-meta">${meta}</div>
+                  </div>
+                </div>
+              `;
+            }).join('') : '<div class="tv-picker-empty">No episodes in this season.</div>'}
+          </div>
+        </div>
+      `;
+
+      // Season dropdown
+      const sel = root.querySelector('#tvSeasonSelect');
+      if (sel) {
+        sel.onchange = () => {
+          renderTvPicker(tvId, Number(sel.value), 1);
+        };
+      }
+
+      // Episode clicks
+      root.querySelectorAll('.ep-card').forEach(card => {
+        card.onclick = () => {
+          const ep = Number(card.dataset.ep);
+          root.querySelectorAll('.ep-card').forEach(c => c.classList.remove('active'));
+          card.classList.add('active');
+          // Bypass v6's hash-push by calling the underlying loader directly
+          loadPlayer('tv', tvId, season, ep, info.name || '');
+        };
+      });
+
+      // Scroll active into view
+      const activeEl = root.querySelector('.ep-card.active');
+      if (activeEl) {
+        setTimeout(() => {
+          activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }, 100);
+      }
+    } catch (err) {
+      console.error('TV picker failed:', err);
+      root.innerHTML = '<div class="tv-picker-card"><div class="tv-picker-empty">Couldn\'t load episodes.</div></div>';
+    }
+  }
+
+  /* ---------- Hook into loadPlayer ---------- */
+  const _prevLoadPlayerV12 = loadPlayer;
+  loadPlayer = function (type, id, season, episode, title) {
+    _prevLoadPlayerV12(type, id, season, episode, title);
+
+    if (type === 'tv') {
+      // small delay so the player has started rendering
+      setTimeout(() => renderTvPicker(id, season || 1, episode || 1), 80);
+    } else {
+      hideTvPicker();
+    }
+  };
+
+  /* Also patch the router's post-load hook */
+  const _prevPostLoadV12 = window.__zsPostLoad;
+  window.__zsPostLoad = function (type, id, s, e, title) {
+    if (typeof _prevPostLoadV12 === 'function') _prevPostLoadV12(type, id, s, e, title);
+    if (type === 'tv') {
+      setTimeout(() => renderTvPicker(id, s || 1, e || 1), 80);
+    } else {
+      hideTvPicker();
+    }
+  };
+
+  /* Hide picker when leaving the player */
+  const _prevShowHomeV12 = window.showHome;
+  window.showHome = function () {
+    hideTvPicker();
+    _prevShowHomeV12();
+  };
+
+  /* If a URL route loads a TV show directly, honour it on boot */
+  setTimeout(() => {
+    const hash = location.hash || '';
+    const m = hash.match(/#\/watch\/tv\/(\d+)/);
+    if (m) {
+      const tvId = Number(m[1]);
+      const q = new URLSearchParams((hash.split('?')[1]) || '');
+      const s = Number(q.get('s') || 1);
+      const e = Number(q.get('e') || 1);
+      if (tvId) renderTvPicker(tvId, s, e);
+    }
+  }, 600);
+
+  console.log('[ZS] v12 — clean player view + TV picker ready');
+})();
+
+
+/* ============================================================
+   ZARA'S CUSTOM v14 — Episode hover tooltip (fixed)
+   Uses relatedTarget so moving inside a card doesn't dismiss.
+   ============================================================ */
+(function () {
+  if (window.__zsCustomV14) return;
+  window.__zsCustomV14 = true;
+
+  let tooltip = document.getElementById('epHover');
+  if (!tooltip) {
+    tooltip = document.createElement('div');
+    tooltip.id = 'epHover';
+    tooltip.className = 'ep-hover hidden';
+    document.body.appendChild(tooltip);
+  }
+
+  let currentCard = null;
+  let showTimer = null;
+  let hideTimer = null;
+
+  function cancelTimers() {
+    if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+  }
+
+  function hideTooltip() {
+    cancelTimers();
+    tooltip.classList.remove('show');
+    hideTimer = setTimeout(() => {
+      tooltip.classList.add('hidden');
+      hideTimer = null;
+    }, 170);
+  }
+
+  function buildData(card) {
+    const state = window.__zsTvState || {};
+    const epNum = Number(card.dataset.ep);
+    const season = state.season || 1;
+    const seasonData = state.seasonData;
+    const episodeData = seasonData && seasonData.episodes
+      ? seasonData.episodes.find(x => x.episode_number === epNum)
+      : null;
+
+    return {
+      season,
+      episode: epNum,
+      title: (episodeData && episodeData.name)
+          || (card.querySelector('.ep-title') && card.querySelector('.ep-title').textContent.trim())
+          || 'Untitled',
+      overview: (episodeData && episodeData.overview) || '',
+      airDate: (episodeData && episodeData.air_date) || '',
+      runtime: (episodeData && episodeData.runtime) || null,
+      rating: (episodeData && episodeData.vote_average) || null,
+    };
+  }
+
+  function positionAndShow(card, data) {
+    tooltip.innerHTML = `
+      <div class="eh-head">
+        <span class="eh-num">S${data.season} · E${data.episode}</span>
+        ${data.rating
+          ? `<span class="eh-rating">★ ${Number(data.rating).toFixed(1)}</span>`
+          : `<span class="eh-rating empty">No rating</span>`}
+      </div>
+      <h4 class="eh-title">${data.title}</h4>
+      <div class="eh-meta">
+        ${data.airDate ? `<span>${data.airDate}</span>` : ''}
+        ${data.airDate && data.runtime ? `<span class="dot"></span>` : ''}
+        ${data.runtime ? `<span>${data.runtime} min</span>` : ''}
+      </div>
+      <p class="eh-overview${data.overview ? '' : ' empty'}">
+        ${data.overview || 'No description available.'}
+      </p>
+    `;
+
+    tooltip.classList.remove('hidden');
+    void tooltip.offsetWidth;
+
+    const rect = card.getBoundingClientRect();
+    const tipW = 280;
+    const tipH = tooltip.offsetHeight || 200;
+    const margin = 12;
+
+    let left = rect.left + rect.width / 2 - tipW / 2;
+    left = Math.max(margin, Math.min(left, window.innerWidth - tipW - margin));
+
+    let top;
+    if (rect.top > tipH + 20) {
+      top = rect.top - tipH - margin;
+    } else {
+      top = Math.min(rect.bottom + margin, window.innerHeight - tipH - margin);
+    }
+
+    tooltip.style.left = left + 'px';
+    tooltip.style.top  = top + 'px';
+    tooltip.classList.add('show');
+  }
+
+  /* --- delegated hover --- */
+  document.addEventListener('mouseover', (e) => {
+    const card = e.target.closest && e.target.closest('.ep-card');
+    if (!card) return;
+
+    // Already on this card — don't restart
+    if (currentCard === card) return;
+
+    cancelTimers();
+    currentCard = card;
+    const data = buildData(card);
+
+    showTimer = setTimeout(() => {
+      showTimer = null;
+      if (currentCard !== card) return; // moved away during debounce
+      positionAndShow(card, data);
+    }, 180);
+  });
+
+  document.addEventListener('mouseout', (e) => {
+    const card = e.target.closest && e.target.closest('.ep-card');
+    if (!card) return;
+
+    // If the new target is still inside the same card, don't dismiss
+    const next = e.relatedTarget;
+    if (next && card.contains(next)) return;
+
+    if (currentCard !== card) return;
+
+    currentCard = null;
+    hideTooltip();
+  });
+
+  /* --- global dismiss on scroll / resize / nav --- */
+  window.addEventListener('scroll', () => {
+    currentCard = null;
+    hideTooltip();
+  }, { passive: true, capture: true });
+
+  window.addEventListener('resize', () => {
+    currentCard = null;
+    hideTooltip();
+  });
+
+  window.addEventListener('hashchange', () => {
+    currentCard = null;
+    hideTooltip();
+  });
+
+  console.log('[ZS] v14 — episode tooltip fixed');
+})();

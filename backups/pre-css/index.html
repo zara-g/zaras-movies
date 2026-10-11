@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Zara's Movies</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#ffb6d9" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Zara's Movies" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="v21.css" />
+</head>
+<body>
+
+  <header>
+    <div class="brand" id="brandBtn">
+      <span class="brand-dot"></span>
+      <span class="brand-text">Zara's Movies</span>
+    </div>
+    <button id="profileBtn" class="profile-btn hidden" type="button" title="Switch profile"></button>
+    <span id="kidsPill" class="kids-pill hidden" title="Kids mode active — mature content is filtered">🧒 Kids</span>
+    <div class="search-row">
+      <input id="search" placeholder="Search movies and TV shows..." autocomplete="off" />
+      <button id="searchBtn">Search</button>
+      <div id="searchSuggestions" class="search-suggestions hidden"></div>
+      <div id="searchHistory" class="search-history hidden"></div>
+    </div>
+    <button id="browseBtn" class="browse-btn" type="button" aria-haspopup="true" aria-expanded="false">
+      <span class="bi-icon">🧭</span> <span class="browse-label">Browse</span> <span class="caret">▾</span>
+    </button>
+    <button id="installBtn" class="install-btn hidden" type="button">⬇ Install App</button>
+    <button id="refreshAppBtn" class="refresh-app-btn" type="button" title="Refresh app" aria-label="Refresh app">
+      <span class="ra-icon">↻</span>
+    </button>
+    <button id="settingsBtn" class="settings-btn" type="button" title="Settings">⚙️</button>
+  </header>
+
+  <div id="browseMenu" class="browse-menu hidden">
+    <div class="browse-item" data-href="#/discover"><span class="bi-icon">🧭</span> Discover <span class="bi-desc">Categories</span></div>
+    <div class="browse-item" data-href="#/top100"><span class="bi-icon">🏆</span> Top 100 <span class="bi-desc">Highest rated</span></div>
+    <div class="browse-item" data-href="#/random"><span class="bi-icon">🎲</span> Random <span class="bi-desc">Surprise me</span></div>
+  </div>
+
+  <main id="home-view" class="view hidden">
+    <section id="hero" class="hero"></section>
+    <div class="genre-bar" id="genreBar">
+      <span class="genre-bar-label">Browse by Genre</span>
+      <select id="mainGenreSelect" class="genre-select" aria-label="Choose a genre"></select>
+    </div>
+    <div id="rows" class="rows">
+      <div id="personalRows"></div>
+      <div id="mainRows"></div>
+      <div id="searchResults" class="hidden"></div>
+    </div>
+  </main>
+
+  <main id="player-view" class="view hidden">
+    <div class="player-bar">
+      <button id="backHome" class="pill-btn">← Back to Home</button>
+      <div id="player-title" class="player-title"></div>
+      <div id="sourcePicker" class="source-picker">
+        <label class="sp-label" for="sourceSelect">Source</label>
+        <select id="sourceSelect" class="sp-select" aria-label="Playback source"></select>
+      </div>
+    </div>
+    <div id="player-wrap">
+      <iframe id="player" allow="autoplay; fullscreen *; picture-in-picture *; encrypted-media; clipboard-write"></iframe>
+    </div>
+    <button id="nextEpisodeBtn" class="next-episode-btn hidden">Next Episode →</button>
+    <div id="tvPickerRoot" class="hidden"></div>
+    <div id="similar-section" class="hidden">
+      <h3 class="similar-heading">More Like This</h3>
+      <div id="similarGrid"></div>
+    </div>
+    <div id="status">Ready.</div>
+  </main>
+
+  <main id="random-view" class="view hidden">
+    <div class="random-header">
+      <div class="random-heading">
+        <h1>🎲 Random Picks</h1>
+        <p>Eight random movies, refreshed on demand</p>
+      </div>
+      <div class="random-controls">
+        <select id="randomGenre" class="genre-select" aria-label="Genre filter"></select>
+        <button class="refresh-btn" id="refreshRandom">
+          <span class="rf-icon">↻</span> Refresh
+        </button>
+      </div>
+    </div>
+    <div class="random-grid" id="randomGrid"></div>
+  </main>
+
+  <main id="genre-view" class="view hidden">
+    <div class="genre-header">
+      <button class="pill-btn" data-back>← Back</button>
+      <div class="random-heading">
+        <h1 id="genreTitle">Genre</h1>
+        <p id="genreSub">Top rated in this genre</p>
+      </div>
+    </div>
+    <div class="random-grid" id="genreGrid"></div>
+  </main>
+
+  <main id="top100-view" class="view hidden">
+    <div class="top100-header">
+      <button class="pill-btn" data-back>← Back</button>
+      <div class="random-heading">
+        <h1 id="top100Title">Top 100 Movies</h1>
+        <p id="top100Sub">Ranked by IMDb rating</p>
+      </div>
+      <div class="toggle-group" id="top100Toggle">
+        <button class="toggle-btn active" data-type="movie">Movies</button>
+        <button class="toggle-btn" data-type="tv">TV Shows</button>
+      </div>
+    </div>
+    <div class="top100-grid" id="top100Grid"></div>
+    <div class="top100-pagination" id="top100Pagination"></div>
+  </main>
+
+  <main id="discover-view" class="view hidden">
+    <div class="discover-header">
+      <button class="pill-btn" data-back>← Back</button>
+      <div class="random-heading">
+        <h1>Discover</h1>
+        <p id="discoverSub">Explore by category</p>
+      </div>
+    </div>
+    <div class="discover-filters" id="discoverFilters"></div>
+    <div class="discover-controls" id="discoverControls"></div>
+    <div class="random-grid" id="discoverGrid"></div>
+    <div class="top100-pagination" id="discoverPagination"></div>
+  </main>
+
+  <main id="person-view" class="view hidden">
+    <div class="discover-header">
+      <button class="pill-btn" data-back>← Back</button>
+    </div>
+    <div id="personHeader" class="person-header"></div>
+    <div class="random-grid" id="personGrid"></div>
+  </main>
+
+  <main id="collection-view" class="view hidden">
+    <div class="discover-header">
+      <button class="pill-btn" data-back>← Back</button>
+    </div>
+    <div id="collectionBanner" class="collection-banner hidden"></div>
+    <div class="random-grid" id="collectionGrid"></div>
+  </main>
+
+  <main id="settings-view" class="view hidden">
+    <div class="settings-header">
+      <button class="pill-btn" data-back>← Back</button>
+      <h1 class="settings-title">Settings</h1>
+    </div>
+
+    <div class="settings-card">
+      <h3>Appearance</h3>
+      <div class="settings-row" style="flex-direction: column; align-items: flex-start; gap: 14px;">
+        <div class="settings-label">
+          <span class="lbl">Accent colour</span>
+          <span class="desc">Changes buttons, focus rings, and the CineSrc player tint</span>
+        </div>
+        <div class="accent-grid" id="accentGrid"></div>
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <h3>Playback</h3>
+      <div class="settings-row">
+        <div class="settings-label">
+          <span class="lbl">Auto-play next episode</span>
+          <span class="desc">Automatically continues to the next episode for TV shows</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="setAutonext" data-setting="autonext" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label">
+          <span class="lbl">Auto-skip intros</span>
+          <span class="desc">Skips recap and intro segments automatically</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="setAutoskip" data-setting="autoskip" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label">
+          <span class="lbl">Autoplay on open</span>
+          <span class="desc">Start playing as soon as the player loads</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="setAutoplay" data-setting="autoplay" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <h3>Data</h3>
+      <div class="settings-row">
+        <div class="settings-label">
+          <span class="lbl">Clear Continue Watching</span>
+          <span class="desc">Removes playback progress for all titles</span>
+        </div>
+        <button class="danger-btn" id="clearProgress">Clear</button>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label">
+          <span class="lbl">Clear Watchlist</span>
+          <span class="desc">Removes all favourites from your watchlist</span>
+        </div>
+        <button class="danger-btn" id="clearWatchlist">Clear</button>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label">
+          <span class="lbl">Reset everything</span>
+          <span class="desc">Clears this profile's saved data and returns to defaults</span>
+        </div>
+        <button class="danger-btn" id="resetAll">Reset</button>
+      </div>
+    </div>
+
+    <div class="settings-card">
+      <h3>Profiles</h3>
+      <div class="settings-row">
+        <div class="settings-label">
+          <span class="lbl">Manage profiles</span>
+          <span class="desc">Each profile has its own watchlist, continue-watching, search history and accent colour.</span>
+        </div>
+        <button class="pm-btn pm-btn-primary" id="openProfilesBtn" type="button"
+                style="flex:0 0 auto;padding:10px 22px;font-size:13px;">Manage</button>
+      </div>
+    </div>
+
+    <div class="settings-about">
+      <strong>Zara's Movies</strong> · v2.0<br />
+      Built with TMDB · OMDb · CineSrc
+    </div>
+  </main>
+
+  <div id="hover-card" class="hover-card hidden"></div>
+  <div id="epHover" class="ep-hover hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

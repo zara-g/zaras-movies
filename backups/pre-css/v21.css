@@ -1,0 +1,28 @@
+.fs-btn {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--panel);
+  color: var(--text); font-size: 18px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-left: 8px; padding: 0;
+  transition: background 0.2s, border-color 0.2s, color 0.2s,
+              transform 0.15s, box-shadow 0.25s;
+  font-family: inherit;
+}
+.fs-btn:hover {
+  border-color: var(--accent); color: var(--accent);
+  box-shadow: 0 0 18px var(--accent-glow); transform: translateY(-1px);
+}
+.fs-btn:active { transform: scale(0.96); }
+.fs-btn.active {
+  background: var(--accent); border-color: var(--accent); color: #1a0e15;
+}
+#player-wrap:fullscreen,
+#player-wrap:-webkit-full-screen {
+  border-radius: 0; box-shadow: none; background: #000;
+  width: 100vw; height: 100vh; aspect-ratio: auto;
+}
+#player-wrap:fullscreen iframe,
+#player-wrap:-webkit-full-screen iframe { width: 100vw; height: 100vh; }
+@media (max-width: 720px) {
+  .fs-btn { width: 34px; height: 34px; font-size: 16px; margin-left: 6px; }
+}
